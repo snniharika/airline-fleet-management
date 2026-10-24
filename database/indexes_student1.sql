@@ -1,16 +1,22 @@
 USE airline_management;
 
-CREATE INDEX idx_flight_aircraft_schedule
-ON FLIGHT (aircraft_id, scheduled_departure, scheduled_arrival);
+-- The following indexes already exist in the database schema.
+-- They are defined when the AIRCRAFT and FLIGHT tables are created.
+-- Do not recreate them, as MySQL will report duplicate key names.
 
-CREATE INDEX idx_flight_departure_schedule
-ON FLIGHT (departure_airport_id, scheduled_departure);
+-- FLIGHT:
+-- idx_flight_aircraft_schedule
+-- (aircraft_id, scheduled_departure, scheduled_arrival)
 
-CREATE INDEX idx_flight_arrival_schedule
-ON FLIGHT (arrival_airport_id, scheduled_arrival);
+-- idx_flight_departure_schedule
+-- (departure_airport_id, scheduled_departure)
 
-CREATE INDEX idx_aircraft_status
-ON AIRCRAFT (aircraft_status);
+-- idx_flight_arrival_schedule
+-- (arrival_airport_id, scheduled_arrival)
 
-CREATE INDEX idx_aircraft_model
-ON AIRCRAFT (model_id);
+-- AIRCRAFT:
+-- idx_aircraft_status
+-- (aircraft_status)
+
+-- idx_aircraft_model
+-- (model_id)
