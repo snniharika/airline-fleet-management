@@ -10,11 +10,13 @@ export async function GET() {
         ca.crew_id,
         cm.first_name,
         cm.last_name,
+        cm.availability_status,
         ca.flight_id,
         ca.assigned_role,
         ca.status
       FROM CREW_ASSIGNMENT ca
-      JOIN CREW_MEMBER cm ON ca.crew_id = cm.crew_id
+      JOIN CREW_MEMBER cm
+        ON ca.crew_id = cm.crew_id
       ORDER BY ca.assignment_id DESC
     `);
 
@@ -34,13 +36,15 @@ export async function POST(request: Request) {
     const body = await request.json();
     const { crew_id, flight_id, assigned_role } = body;
 
+    // Validate required fields
     if (!crew_id || !flight_id || !assigned_role) {
       return NextResponse.json(
-        { error: "crew_id, flight_id and assigned_role are required" },
+        { error: "crew_id, flight_id, and assigned_role are required" },
         { status: 400 }
       );
     }
 
+    // Validate IDs
     const crewId = Number(crew_id);
     const flightId = Number(flight_id);
 
@@ -56,16 +60,52 @@ export async function POST(request: Request) {
       );
     }
 
+    // Validate role
     const allowedRoles = ["PILOT", "CO_PILOT", "CABIN_CREW"];
 
-    if (!allowedRoles.includes(assigned_role)) {
+    if (
+      typeof assigned_role !== "string" ||
+      !allowedRoles.includes(assigned_role)
+    ) {
       return NextResponse.json(
-        { error: "Invalid crew role" },
+        {
+          error:
+            "Invalid assigned_role. Use PILOT, CO_PILOT, or CABIN_CREW",
+        },
         { status: 400 }
       );
     }
 
-    // Prevent duplicate active assignments for the same role.
+    // Check crew member and availability
+    const [crewRows] = await pool.execute(
+      `SELECT crew_id, availability_status
+       FROM CREW_MEMBER
+       WHERE crew_id = ?`,
+      [crewId]
+    );
+
+    const crew = (
+      crewRows as {
+        crew_id: number;
+        availability_status: string;
+      }[]
+    )[0];
+
+    if (!crew) {
+      return NextResponse.json(
+        { error: "Crew member not found" },
+        { status: 404 }
+      );
+    }
+
+    if (crew.availability_status !== "AVAILABLE") {
+      return NextResponse.json(
+        { error: "Crew member is not available for assignment" },
+        { status: 409 }
+      );
+    }
+
+    // Prevent duplicate active assignments for the same role and flight
     const [existing] = await pool.execute(
       `SELECT assignment_id
        FROM CREW_ASSIGNMENT
@@ -78,12 +118,15 @@ export async function POST(request: Request) {
 
     if ((existing as unknown[]).length > 0) {
       return NextResponse.json(
-        { error: "This crew member already has this role on the flight" },
+        {
+          error:
+            "This crew member already has an active assignment for this flight and role",
+        },
         { status: 409 }
       );
     }
 
-    // Validate pilot licenses before assigning pilots.
+    // Validate pilot licenses
     const requiredLicenseType =
       assigned_role === "PILOT" || assigned_role === "CO_PILOT"
         ? assigned_role
@@ -112,6 +155,7 @@ export async function POST(request: Request) {
       }
     }
 
+    // Create assignment
     const [result] = await pool.execute(
       `INSERT INTO CREW_ASSIGNMENT
        (crew_id, flight_id, assigned_role, status)
