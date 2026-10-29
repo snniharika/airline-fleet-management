@@ -2,6 +2,25 @@
 import { NextResponse } from "next/server";
 import { pool } from "@/lib/mysql";
 
+const ALLOWED_ROLES = ["PILOT", "CO_PILOT", "CABIN_CREW"];
+
+type CrewRow = {
+  crew_id: number;
+  first_name?: string;
+  last_name?: string;
+  availability_status: string;
+};
+
+type FlightRow = {
+  flight_id: number;
+  scheduled_departure: string | Date;
+  scheduled_arrival: string | Date;
+};
+
+function validDate(value: string | Date): Date {
+  return value instanceof Date ? value : new Date(value);
+}
+
 export async function GET() {
   try {
     const [rows] = await pool.query(`
@@ -15,13 +34,15 @@ export async function GET() {
         ca.assigned_role,
         ca.status
       FROM CREW_ASSIGNMENT ca
-      JOIN CREW_MEMBER cm ON ca.crew_id = cm.crew_id
+      JOIN CREW_MEMBER cm
+        ON cm.crew_id = ca.crew_id
       ORDER BY ca.assignment_id DESC
     `);
 
     return NextResponse.json(rows);
   } catch (error) {
     console.error("Fetch crew assignments error:", error);
+
     return NextResponse.json(
       { error: "Failed to fetch crew assignments" },
       { status: 500 }
@@ -34,33 +55,42 @@ export async function POST(request: Request) {
     const body = await request.json();
     const { crew_id, flight_id, assigned_role } = body;
 
-    if (!crew_id || !flight_id || !assigned_role) {
+    // 1. Validate required fields.
+    if (
+      crew_id === undefined ||
+      crew_id === null ||
+      crew_id === "" ||
+      flight_id === undefined ||
+      flight_id === null ||
+      flight_id === "" ||
+      !assigned_role
+    ) {
       return NextResponse.json(
         { error: "crew_id, flight_id, and assigned_role are required" },
         { status: 400 }
       );
     }
 
+    // 2. Validate IDs.
     const crewId = Number(crew_id);
     const flightId = Number(flight_id);
 
     if (
-      !Number.isInteger(crewId) ||
+      !Number.isSafeInteger(crewId) ||
       crewId <= 0 ||
-      !Number.isInteger(flightId) ||
+      !Number.isSafeInteger(flightId) ||
       flightId <= 0
     ) {
       return NextResponse.json(
-        { error: "Crew and flight IDs must be positive integers" },
+        { error: "Crew ID and flight ID must be positive integers" },
         { status: 400 }
       );
     }
 
-    const allowedRoles = ["PILOT", "CO_PILOT", "CABIN_CREW"];
-
+    // 3. Validate the assigned role.
     if (
       typeof assigned_role !== "string" ||
-      !allowedRoles.includes(assigned_role)
+      !ALLOWED_ROLES.includes(assigned_role)
     ) {
       return NextResponse.json(
         { error: "Role must be PILOT, CO_PILOT, or CABIN_CREW" },
@@ -68,20 +98,15 @@ export async function POST(request: Request) {
       );
     }
 
-    // Check crew existence and availability.
+    // 4. Check crew existence and availability.
     const [crewRows] = await pool.execute(
-      `SELECT crew_id, availability_status
+      `SELECT crew_id, first_name, last_name, availability_status
        FROM CREW_MEMBER
        WHERE crew_id = ?`,
       [crewId]
     );
 
-    const crew = (
-      crewRows as {
-        crew_id: number;
-        availability_status: string;
-      }[]
-    )[0];
+    const crew = (crewRows as CrewRow[])[0];
 
     if (!crew) {
       return NextResponse.json(
@@ -97,7 +122,7 @@ export async function POST(request: Request) {
       );
     }
 
-    // Retrieve the flight's scheduled time interval.
+    // 5. Check that the flight exists and has valid scheduled times.
     const [flightRows] = await pool.execute(
       `SELECT flight_id, scheduled_departure, scheduled_arrival
        FROM FLIGHT
@@ -105,13 +130,7 @@ export async function POST(request: Request) {
       [flightId]
     );
 
-    const flight = (
-      flightRows as {
-        flight_id: number;
-        scheduled_departure: string | Date;
-        scheduled_arrival: string | Date;
-      }[]
-    )[0];
+    const flight = (flightRows as FlightRow[])[0];
 
     if (!flight) {
       return NextResponse.json(
@@ -120,40 +139,46 @@ export async function POST(request: Request) {
       );
     }
 
+    const departure = validDate(flight.scheduled_departure);
+    const arrival = validDate(flight.scheduled_arrival);
+
     if (
-      !flight.scheduled_departure ||
-      !flight.scheduled_arrival ||
-      new Date(flight.scheduled_arrival).getTime() <=
-        new Date(flight.scheduled_departure).getTime()
+      Number.isNaN(departure.getTime()) ||
+      Number.isNaN(arrival.getTime()) ||
+      arrival.getTime() <= departure.getTime()
     ) {
       return NextResponse.json(
-        { error: "Flight has an invalid scheduled time interval" },
+        { error: "Flight has invalid scheduled departure or arrival times" },
         { status: 400 }
       );
     }
 
-    // Reject duplicate active assignments to the same flight.
-    const [existing] = await pool.execute(
+    // 6. Prevent duplicate active assignments to the same flight.
+    const [duplicateRows] = await pool.execute(
       `SELECT assignment_id
        FROM CREW_ASSIGNMENT
        WHERE crew_id = ?
          AND flight_id = ?
-         AND status <> 'CANCELLED'`,
+         AND status <> 'CANCELLED'
+       LIMIT 1`,
       [crewId, flightId]
     );
 
-    if ((existing as unknown[]).length > 0) {
+    if ((duplicateRows as unknown[]).length > 0) {
       return NextResponse.json(
-        { error: "This crew member is already assigned to this flight" },
+        { error: "Crew member is already assigned to this flight" },
         { status: 409 }
       );
     }
 
-    // Reject overlapping assignments on other flights.
-    const [overlappingRows] = await pool.execute(
+    // 7. Prevent overlapping assignments on other flights.
+    // Intervals overlap when existing departure < new arrival
+    // and existing arrival > new departure.
+    const [overlapRows] = await pool.execute(
       `SELECT ca.assignment_id, ca.flight_id
        FROM CREW_ASSIGNMENT ca
-       JOIN FLIGHT f ON f.flight_id = ca.flight_id
+       JOIN FLIGHT f
+         ON f.flight_id = ca.flight_id
        WHERE ca.crew_id = ?
          AND ca.status IN ('ASSIGNED', 'CONFIRMED')
          AND ca.flight_id <> ?
@@ -168,7 +193,7 @@ export async function POST(request: Request) {
       ]
     );
 
-    if ((overlappingRows as unknown[]).length > 0) {
+    if ((overlapRows as unknown[]).length > 0) {
       return NextResponse.json(
         {
           error:
@@ -178,7 +203,7 @@ export async function POST(request: Request) {
       );
     }
 
-    // Validate the required pilot licence against the flight date.
+    // 8. Validate the licence for pilots and co-pilots.
     const requiredLicenseType =
       assigned_role === "PILOT" || assigned_role === "CO_PILOT"
         ? assigned_role
@@ -213,6 +238,7 @@ export async function POST(request: Request) {
       }
     }
 
+    // 9. Create the assignment.
     const [result] = await pool.execute(
       `INSERT INTO CREW_ASSIGNMENT
        (crew_id, flight_id, assigned_role, status)
@@ -223,7 +249,7 @@ export async function POST(request: Request) {
     return NextResponse.json(
       {
         message: "Crew assigned to flight successfully",
-        result
+        assignment: result
       },
       { status: 201 }
     );
