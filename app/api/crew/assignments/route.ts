@@ -41,6 +41,21 @@ export async function POST(request: Request) {
       );
     }
 
+    const crewId = Number(crew_id);
+    const flightId = Number(flight_id);
+
+    if (
+      !Number.isInteger(crewId) ||
+      crewId <= 0 ||
+      !Number.isInteger(flightId) ||
+      flightId <= 0
+    ) {
+      return NextResponse.json(
+        { error: "crew_id and flight_id must be positive integers" },
+        { status: 400 }
+      );
+    }
+
     const allowedRoles = ["PILOT", "CO_PILOT", "CABIN_CREW"];
 
     if (!allowedRoles.includes(assigned_role)) {
@@ -50,6 +65,7 @@ export async function POST(request: Request) {
       );
     }
 
+    // Prevent duplicate active assignments for the same role.
     const [existing] = await pool.execute(
       `SELECT assignment_id
        FROM CREW_ASSIGNMENT
@@ -57,7 +73,7 @@ export async function POST(request: Request) {
          AND flight_id = ?
          AND assigned_role = ?
          AND status <> 'CANCELLED'`,
-      [crew_id, flight_id, assigned_role]
+      [crewId, flightId, assigned_role]
     );
 
     if ((existing as unknown[]).length > 0) {
@@ -67,11 +83,40 @@ export async function POST(request: Request) {
       );
     }
 
+    // Validate pilot licenses before assigning pilots.
+    const requiredLicenseType =
+      assigned_role === "PILOT" || assigned_role === "CO_PILOT"
+        ? assigned_role
+        : null;
+
+    if (requiredLicenseType) {
+      const [licenses] = await pool.execute(
+        `SELECT license_id
+         FROM CREW_LICENSE
+         WHERE crew_id = ?
+           AND license_type = ?
+           AND status = 'VALID'
+           AND expiry_date >= CURDATE()
+           AND issue_date <= CURDATE()
+         LIMIT 1`,
+        [crewId, requiredLicenseType]
+      );
+
+      if ((licenses as unknown[]).length === 0) {
+        return NextResponse.json(
+          {
+            error: `Crew member needs a valid, unexpired ${requiredLicenseType} license`,
+          },
+          { status: 400 }
+        );
+      }
+    }
+
     const [result] = await pool.execute(
       `INSERT INTO CREW_ASSIGNMENT
        (crew_id, flight_id, assigned_role, status)
        VALUES (?, ?, ?, 'ASSIGNED')`,
-      [crew_id, flight_id, assigned_role]
+      [crewId, flightId, assigned_role]
     );
 
     return NextResponse.json(
