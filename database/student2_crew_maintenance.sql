@@ -1,0 +1,388 @@
+```sql
+-- ============================================================
+-- AIRLINE FLEET MANAGEMENT SYSTEM
+-- STUDENT 2: CREW AND MAINTENANCE MODULE
+-- Database: airline_management
+-- ============================================================
+
+USE airline_management;
+
+-- ============================================================
+-- 1. MAINTENANCE TYPE
+-- ============================================================
+
+CREATE TABLE IF NOT EXISTS MAINTENANCE_TYPE (
+    maintenance_type_id INT AUTO_INCREMENT PRIMARY KEY,
+    type_name VARCHAR(100) NOT NULL UNIQUE,
+    description TEXT,
+    interval_hours DECIMAL(10,2) NOT NULL,
+    estimated_duration_hours DECIMAL(10,2) NOT NULL,
+    severity_level VARCHAR(20) NOT NULL,
+
+    CONSTRAINT chk_mt_interval
+        CHECK (interval_hours > 0),
+
+    CONSTRAINT chk_mt_duration
+        CHECK (estimated_duration_hours > 0),
+
+    CONSTRAINT chk_mt_severity
+        CHECK (severity_level IN
+            ('LOW', 'MEDIUM', 'HIGH', 'CRITICAL'))
+);
+
+-- ============================================================
+-- 2. CREW LICENSE
+-- ============================================================
+
+CREATE TABLE IF NOT EXISTS CREW_LICENSE (
+    license_id INT AUTO_INCREMENT PRIMARY KEY,
+    crew_id INT NOT NULL,
+    license_type VARCHAR(50) NOT NULL,
+    license_number VARCHAR(50) NOT NULL UNIQUE,
+    issue_date DATE NOT NULL,
+    expiry_date DATE NOT NULL,
+    issuing_authority VARCHAR(100) NOT NULL,
+    status VARCHAR(20) NOT NULL DEFAULT 'VALID',
+
+    CONSTRAINT fk_license_crew
+        FOREIGN KEY (crew_id)
+        REFERENCES CREW_MEMBER(crew_id),
+
+    CONSTRAINT chk_license_dates
+        CHECK (expiry_date >= issue_date),
+
+    CONSTRAINT chk_license_status
+        CHECK (status IN
+            ('VALID', 'EXPIRED', 'SUSPENDED', 'REVOKED'))
+);
+
+-- ============================================================
+-- 3. CREW ASSIGNMENT
+-- ============================================================
+
+CREATE TABLE IF NOT EXISTS CREW_ASSIGNMENT (
+    assignment_id INT AUTO_INCREMENT PRIMARY KEY,
+    crew_id INT NOT NULL,
+    flight_id INT NOT NULL,
+    assigned_role VARCHAR(30) NOT NULL,
+    assignment_status VARCHAR(20) NOT NULL DEFAULT 'ASSIGNED',
+    assigned_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT fk_assignment_crew
+        FOREIGN KEY (crew_id)
+        REFERENCES CREW_MEMBER(crew_id),
+
+    CONSTRAINT fk_assignment_flight
+        FOREIGN KEY (flight_id)
+        REFERENCES FLIGHT(flight_id),
+
+    CONSTRAINT uq_crew_flight_role
+        UNIQUE (crew_id, flight_id, assigned_role),
+
+    CONSTRAINT chk_assignment_role
+        CHECK (assigned_role IN
+            ('PILOT', 'CO_PILOT', 'CABIN_CREW')),
+
+    CONSTRAINT chk_assignment_status
+        CHECK (assignment_status IN
+            ('ASSIGNED', 'CONFIRMED', 'CANCELLED', 'COMPLETED'))
+);
+
+-- ============================================================
+-- 4. MAINTENANCE
+-- ============================================================
+
+CREATE TABLE IF NOT EXISTS MAINTENANCE (
+    maintenance_id INT AUTO_INCREMENT PRIMARY KEY,
+    aircraft_id INT NOT NULL,
+    maintenance_type_id INT NOT NULL,
+    scheduled_start DATETIME NOT NULL,
+    scheduled_end DATETIME,
+    actual_start DATETIME,
+    actual_end DATETIME,
+    maintenance_status VARCHAR(20) NOT NULL DEFAULT 'SCHEDULED',
+    description TEXT,
+    maintenance_cost DECIMAL(12,2) DEFAULT 0,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT fk_maintenance_aircraft
+        FOREIGN KEY (aircraft_id)
+        REFERENCES AIRCRAFT(aircraft_id),
+
+    CONSTRAINT fk_maintenance_type
+        FOREIGN KEY (maintenance_type_id)
+        REFERENCES MAINTENANCE_TYPE(maintenance_type_id),
+
+    CONSTRAINT chk_maintenance_status
+        CHECK (maintenance_status IN
+            ('SCHEDULED', 'IN_PROGRESS', 'COMPLETED',
+             'CANCELLED', 'ON_HOLD')),
+
+    CONSTRAINT chk_maintenance_cost
+        CHECK (maintenance_cost >= 0)
+);
+
+-- ============================================================
+-- 5. MAINTENANCE PARTS INVENTORY
+-- ============================================================
+
+CREATE TABLE IF NOT EXISTS MAINTENANCE_PART (
+    part_id INT AUTO_INCREMENT PRIMARY KEY,
+    part_name VARCHAR(100) NOT NULL,
+    part_number VARCHAR(50) NOT NULL UNIQUE,
+    description TEXT,
+    quantity_in_stock INT NOT NULL DEFAULT 0,
+    unit_cost DECIMAL(10,2) NOT NULL,
+    reorder_level INT NOT NULL DEFAULT 5,
+
+    CONSTRAINT chk_part_stock
+        CHECK (quantity_in_stock >= 0),
+
+    CONSTRAINT chk_part_cost
+        CHECK (unit_cost >= 0),
+
+    CONSTRAINT chk_part_reorder
+        CHECK (reorder_level >= 0)
+);
+
+-- ============================================================
+-- 6. MAINTENANCE PART USAGE
+-- ============================================================
+
+CREATE TABLE IF NOT EXISTS MAINTENANCE_PART_USAGE (
+    usage_id INT AUTO_INCREMENT PRIMARY KEY,
+    maintenance_id INT NOT NULL,
+    part_id INT NOT NULL,
+    quantity_used INT NOT NULL,
+    unit_cost_at_usage DECIMAL(10,2) NOT NULL,
+    used_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT fk_part_usage_maintenance
+        FOREIGN KEY (maintenance_id)
+        REFERENCES MAINTENANCE(maintenance_id),
+
+    CONSTRAINT fk_part_usage_part
+        FOREIGN KEY (part_id)
+        REFERENCES MAINTENANCE_PART(part_id),
+
+    CONSTRAINT chk_usage_quantity
+        CHECK (quantity_used > 0),
+
+    CONSTRAINT chk_usage_cost
+        CHECK (unit_cost_at_usage >= 0)
+);
+
+-- ============================================================
+-- 7. MAINTENANCE STATUS AUDIT
+-- ============================================================
+
+CREATE TABLE IF NOT EXISTS MAINTENANCE_STATUS_AUDIT (
+    audit_id INT AUTO_INCREMENT PRIMARY KEY,
+    maintenance_id INT NOT NULL,
+    old_status VARCHAR(20),
+    new_status VARCHAR(20) NOT NULL,
+    changed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    changed_by VARCHAR(100) DEFAULT 'SYSTEM',
+
+    CONSTRAINT fk_audit_maintenance
+        FOREIGN KEY (maintenance_id)
+        REFERENCES MAINTENANCE(maintenance_id)
+);
+
+-- ============================================================
+-- 8. INDEXES
+-- These indexes already exist in the current database.
+-- Create them separately when setting up a fresh database.
+-- ============================================================
+
+-- CREW_ASSIGNMENT
+-- idx_crew_assignment_flight on (flight_id)
+-- idx_crew_assignment_crew on (crew_id)
+
+-- CREW_LICENSE
+-- idx_crew_license_expiry on (crew_id, expiry_date)
+
+-- MAINTENANCE
+-- idx_maintenance_aircraft_schedule
+--     on (aircraft_id, scheduled_start, scheduled_end)
+-- idx_maintenance_status on (maintenance_status)
+
+-- MAINTENANCE_PART_USAGE
+-- idx_maintenance_part_usage_maintenance on (maintenance_id)
+-- idx_maintenance_part_usage_part on (part_id)
+
+-- ============================================================
+-- 9. AUDIT TRIGGER
+-- ============================================================
+DROP TRIGGER IF EXISTS trg_maintenance_status_audit;
+
+DELIMITER $$
+
+CREATE TRIGGER trg_maintenance_status_audit
+AFTER UPDATE ON MAINTENANCE
+FOR EACH ROW
+BEGIN
+    IF OLD.maintenance_status <> NEW.maintenance_status THEN
+        INSERT INTO MAINTENANCE_STATUS_AUDIT (
+            maintenance_id,
+            old_status,
+            new_status,
+            changed_by
+        )
+        VALUES (
+            NEW.maintenance_id,
+            OLD.maintenance_status,
+            NEW.maintenance_status,
+            CURRENT_USER()
+        );
+    END IF;
+END$$
+
+DELIMITER ;
+-- ============================================================
+-- 10. MAINTENANCE OVERVIEW VIEW
+-- ============================================================
+
+CREATE OR REPLACE VIEW maintenance_overview_view AS
+SELECT
+    m.maintenance_id,
+    a.registration_no,
+    mt.type_name AS maintenance_type,
+    m.scheduled_start,
+    m.scheduled_end,
+    m.maintenance_status,
+    m.maintenance_cost
+FROM MAINTENANCE m
+JOIN AIRCRAFT a
+    ON m.aircraft_id = a.aircraft_id
+JOIN MAINTENANCE_TYPE mt
+    ON m.maintenance_type_id = mt.maintenance_type_id;
+
+-- ============================================================
+-- 11. CREW ASSIGNMENT VIEW
+-- ============================================================
+
+CREATE OR REPLACE VIEW crew_assignment_view AS
+SELECT
+    ca.assignment_id,
+    cm.crew_id,
+    cm.employee_code,
+    cm.first_name,
+    cm.last_name,
+    ca.flight_id,
+    ca.assigned_role,
+    ca.assignment_status,
+    ca.assigned_at
+FROM CREW_ASSIGNMENT ca
+JOIN CREW_MEMBER cm
+    ON ca.crew_id = cm.crew_id;
+
+-- ============================================================
+-- 12. STORED PROCEDURE: AIRCRAFT MAINTENANCE STATUS
+-- ============================================================
+
+DROP PROCEDURE IF EXISTS GetAircraftMaintenanceStatus;
+
+DELIMITER $$
+
+CREATE PROCEDURE GetAircraftMaintenanceStatus(
+    IN p_aircraft_id INT
+)
+BEGIN
+    SELECT
+        a.aircraft_id,
+        a.registration_no,
+        a.total_flight_hours,
+        a.next_maintenance_due_hours,
+        m.maintenance_id,
+        mt.type_name AS maintenance_type,
+        m.scheduled_start,
+        m.maintenance_status
+    FROM AIRCRAFT a
+    LEFT JOIN MAINTENANCE m
+        ON a.aircraft_id = m.aircraft_id
+    LEFT JOIN MAINTENANCE_TYPE mt
+        ON m.maintenance_type_id = mt.maintenance_type_id
+    WHERE a.aircraft_id = p_aircraft_id
+    ORDER BY m.scheduled_start DESC;
+END$$
+
+DELIMITER ;
+
+-- ============================================================
+-- 13. USEFUL CREW QUERIES
+-- ============================================================
+
+-- View all crew members and their availability
+SELECT
+    crew_id,
+    employee_code,
+    first_name,
+    last_name,
+    crew_role,
+    availability_status
+FROM CREW_MEMBER;
+
+-- View assignments for a particular flight
+SELECT *
+FROM crew_assignment_view
+WHERE flight_id = 1;
+
+-- Find expired or soon-to-expire licenses
+SELECT
+    cm.employee_code,
+    cm.first_name,
+    cm.last_name,
+    cl.license_type,
+    cl.license_number,
+    cl.expiry_date,
+    cl.status
+FROM CREW_LICENSE cl
+JOIN CREW_MEMBER cm
+    ON cl.crew_id = cm.crew_id
+WHERE cl.expiry_date <= DATE_ADD(CURDATE(), INTERVAL 90 DAY)
+   OR cl.status <> 'VALID'
+ORDER BY cl.expiry_date;
+
+-- ============================================================
+-- 14. USEFUL MAINTENANCE QUERIES
+-- ============================================================
+
+-- View all scheduled and active maintenance
+SELECT *
+FROM maintenance_overview_view
+WHERE maintenance_status IN ('SCHEDULED', 'IN_PROGRESS');
+
+-- Find parts that need reordering
+SELECT
+    part_id,
+    part_name,
+    part_number,
+    quantity_in_stock,
+    reorder_level
+FROM MAINTENANCE_PART
+WHERE quantity_in_stock <= reorder_level;
+
+-- Calculate parts cost for each maintenance record
+SELECT
+    m.maintenance_id,
+    COALESCE(
+        SUM(mpu.quantity_used * mpu.unit_cost_at_usage), 0
+    ) AS total_parts_cost
+FROM MAINTENANCE m
+LEFT JOIN MAINTENANCE_PART_USAGE mpu
+    ON m.maintenance_id = mpu.maintenance_id
+GROUP BY m.maintenance_id;
+
+-- View maintenance status changes
+SELECT *
+FROM MAINTENANCE_STATUS_AUDIT
+ORDER BY changed_at DESC;
+
+-- Call the procedure for aircraft ID 1
+CALL GetAircraftMaintenanceStatus(1);
+
+-- ============================================================
+-- END OF STUDENT 2 SQL SCRIPT
+-- ============================================================
+```
