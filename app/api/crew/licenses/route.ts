@@ -2,6 +2,7 @@
 import { NextResponse } from "next/server";
 import { pool } from "@/lib/mysql";
 
+// GET: Fetch all crew licenses or licenses for one crew member
 export async function GET(request: Request) {
   try {
     const { searchParams } = new URL(request.url);
@@ -23,8 +24,17 @@ export async function GET(request: Request) {
     const params: (string | number)[] = [];
 
     if (crewId) {
+      const parsedCrewId = Number(crewId);
+
+      if (!Number.isSafeInteger(parsedCrewId) || parsedCrewId <= 0) {
+        return NextResponse.json(
+          { error: "Invalid crew ID" },
+          { status: 400 }
+        );
+      }
+
       query += " WHERE crew_id = ?";
-      params.push(crewId);
+      params.push(parsedCrewId);
     }
 
     query += " ORDER BY expiry_date ASC";
@@ -42,6 +52,7 @@ export async function GET(request: Request) {
   }
 }
 
+// POST: Add a new crew license
 export async function POST(request: Request) {
   try {
     const body = await request.json();
@@ -70,14 +81,44 @@ export async function POST(request: Request) {
       );
     }
 
-    if (new Date(expiry_date) < new Date(issue_date)) {
+    const crewId = Number(crew_id);
+
+    if (!Number.isSafeInteger(crewId) || crewId <= 0) {
+      return NextResponse.json(
+        { error: "Invalid crew ID" },
+        { status: 400 }
+      );
+    }
+
+    // Validate date format
+    const dateFormat = /^\d{4}-\d{2}-\d{2}$/;
+
+    if (
+      typeof issue_date !== "string" ||
+      typeof expiry_date !== "string" ||
+      !dateFormat.test(issue_date) ||
+      !dateFormat.test(expiry_date)
+    ) {
+      return NextResponse.json(
+        { error: "Dates must be in YYYY-MM-DD format" },
+        { status: 400 }
+      );
+    }
+
+    // Validate date order
+    if (expiry_date < issue_date) {
       return NextResponse.json(
         { error: "Expiry date cannot be before issue date" },
         { status: 400 }
       );
     }
 
-    const allowedStatuses = ["VALID", "EXPIRED", "SUSPENDED", "REVOKED"];
+    const allowedStatuses = [
+      "VALID",
+      "EXPIRED",
+      "SUSPENDED",
+      "REVOKED",
+    ];
 
     if (!allowedStatuses.includes(status)) {
       return NextResponse.json(
@@ -86,13 +127,36 @@ export async function POST(request: Request) {
       );
     }
 
+    // Check whether the crew member exists
+    const [crewRows] = await pool.execute(
+      `SELECT crew_id
+       FROM CREW_MEMBER
+       WHERE crew_id = ?`,
+      [crewId]
+    );
+
+    if ((crewRows as any[]).length === 0) {
+      return NextResponse.json(
+        { error: "Crew member not found" },
+        { status: 404 }
+      );
+    }
+
+    // Insert the license
     const [result] = await pool.execute(
       `INSERT INTO CREW_LICENSE
-       (crew_id, license_type, license_number, issue_date,
-        expiry_date, issuing_authority, status)
+       (
+         crew_id,
+         license_type,
+         license_number,
+         issue_date,
+         expiry_date,
+         issuing_authority,
+         status
+       )
        VALUES (?, ?, ?, ?, ?, ?, ?)`,
       [
-        crew_id,
+        crewId,
         license_type,
         license_number,
         issue_date,
