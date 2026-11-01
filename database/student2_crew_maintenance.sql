@@ -1,4 +1,4 @@
-```sql
+
 -- ============================================================
 -- AIRLINE FLEET MANAGEMENT SYSTEM
 -- STUDENT 2: CREW AND MAINTENANCE MODULE
@@ -62,11 +62,13 @@ CREATE TABLE IF NOT EXISTS CREW_LICENSE (
 
 CREATE TABLE IF NOT EXISTS CREW_ASSIGNMENT (
     assignment_id INT AUTO_INCREMENT PRIMARY KEY,
-    crew_id INT NOT NULL,
     flight_id INT NOT NULL,
+    crew_id INT NOT NULL,
     assigned_role VARCHAR(30) NOT NULL,
     assignment_status VARCHAR(20) NOT NULL DEFAULT 'ASSIGNED',
     assigned_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    hours_at_flight DECIMAL(10,2) NOT NULL DEFAULT 0,
+    remarks TEXT NULL,
 
     CONSTRAINT fk_assignment_crew
         FOREIGN KEY (crew_id)
@@ -81,11 +83,14 @@ CREATE TABLE IF NOT EXISTS CREW_ASSIGNMENT (
 
     CONSTRAINT chk_assignment_role
         CHECK (assigned_role IN
-            ('PILOT', 'CO_PILOT', 'CABIN_CREW')),
+            ('CAPTAIN', 'FIRST_OFFICER', 'CABIN_CREW')),
 
     CONSTRAINT chk_assignment_status
         CHECK (assignment_status IN
-            ('ASSIGNED', 'CONFIRMED', 'CANCELLED', 'COMPLETED'))
+            ('ASSIGNED', 'CONFIRMED', 'CANCELLED', 'COMPLETED')),
+
+    CONSTRAINT chk_assignment_hours
+        CHECK (hours_at_flight >= 0)
 );
 
 -- ============================================================
@@ -100,10 +105,12 @@ CREATE TABLE IF NOT EXISTS MAINTENANCE (
     scheduled_end DATETIME,
     actual_start DATETIME,
     actual_end DATETIME,
+    flight_hours_at_service DECIMAL(10,2) NOT NULL DEFAULT 0,
     maintenance_status VARCHAR(20) NOT NULL DEFAULT 'SCHEDULED',
-    description TEXT,
-    maintenance_cost DECIMAL(12,2) DEFAULT 0,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    priority VARCHAR(20) NOT NULL DEFAULT 'MEDIUM',
+    technician_name VARCHAR(100),
+    cost DECIMAL(12,2) NOT NULL DEFAULT 0,
+    remarks TEXT,
 
     CONSTRAINT fk_maintenance_aircraft
         FOREIGN KEY (aircraft_id)
@@ -118,8 +125,15 @@ CREATE TABLE IF NOT EXISTS MAINTENANCE (
             ('SCHEDULED', 'IN_PROGRESS', 'COMPLETED',
              'CANCELLED', 'ON_HOLD')),
 
+    CONSTRAINT chk_maintenance_priority
+        CHECK (priority IN
+            ('LOW', 'MEDIUM', 'HIGH', 'CRITICAL')),
+
     CONSTRAINT chk_maintenance_cost
-        CHECK (maintenance_cost >= 0)
+        CHECK (cost >= 0),
+
+    CONSTRAINT chk_maintenance_flight_hours
+        CHECK (flight_hours_at_service >= 0)
 );
 
 -- ============================================================
@@ -128,15 +142,16 @@ CREATE TABLE IF NOT EXISTS MAINTENANCE (
 
 CREATE TABLE IF NOT EXISTS MAINTENANCE_PART (
     part_id INT AUTO_INCREMENT PRIMARY KEY,
-    part_name VARCHAR(100) NOT NULL,
     part_number VARCHAR(50) NOT NULL UNIQUE,
-    description TEXT,
-    quantity_in_stock INT NOT NULL DEFAULT 0,
-    unit_cost DECIMAL(10,2) NOT NULL,
+    part_name VARCHAR(100) NOT NULL,
+    manufacturer VARCHAR(100) NOT NULL,
+    unit_cost DECIMAL(10,2) NOT NULL DEFAULT 0,
+    stock_quantity INT NOT NULL DEFAULT 0,
     reorder_level INT NOT NULL DEFAULT 5,
+    part_status VARCHAR(30) NOT NULL DEFAULT 'AVAILABLE',
 
     CONSTRAINT chk_part_stock
-        CHECK (quantity_in_stock >= 0),
+        CHECK (stock_quantity >= 0),
 
     CONSTRAINT chk_part_cost
         CHECK (unit_cost >= 0),
@@ -155,7 +170,7 @@ CREATE TABLE IF NOT EXISTS MAINTENANCE_PART_USAGE (
     part_id INT NOT NULL,
     quantity_used INT NOT NULL,
     unit_cost_at_usage DECIMAL(10,2) NOT NULL,
-    used_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    replacement_reason TEXT NOT NULL,
 
     CONSTRAINT fk_part_usage_maintenance
         FOREIGN KEY (maintenance_id)
@@ -174,6 +189,7 @@ CREATE TABLE IF NOT EXISTS MAINTENANCE_PART_USAGE (
 
 -- ============================================================
 -- 7. MAINTENANCE STATUS AUDIT
+-- Supplementary table; not part of the 12 submitted relations.
 -- ============================================================
 
 CREATE TABLE IF NOT EXISTS MAINTENANCE_STATUS_AUDIT (
@@ -191,7 +207,7 @@ CREATE TABLE IF NOT EXISTS MAINTENANCE_STATUS_AUDIT (
 
 -- ============================================================
 -- 8. INDEXES
--- These indexes already exist in the current database.
+-- These indexes may already exist in the current database.
 -- Create them separately when setting up a fresh database.
 -- ============================================================
 
@@ -214,6 +230,7 @@ CREATE TABLE IF NOT EXISTS MAINTENANCE_STATUS_AUDIT (
 -- ============================================================
 -- 9. AUDIT TRIGGER
 -- ============================================================
+
 DROP TRIGGER IF EXISTS trg_maintenance_status_audit;
 
 DELIMITER $$
@@ -239,6 +256,7 @@ BEGIN
 END$$
 
 DELIMITER ;
+
 -- ============================================================
 -- 10. MAINTENANCE OVERVIEW VIEW
 -- ============================================================
@@ -246,12 +264,16 @@ DELIMITER ;
 CREATE OR REPLACE VIEW maintenance_overview_view AS
 SELECT
     m.maintenance_id,
-    a.registration_no,
+    a.registration_id,
     mt.type_name AS maintenance_type,
     m.scheduled_start,
     m.scheduled_end,
     m.maintenance_status,
-    m.maintenance_cost
+    m.priority,
+    m.technician_name,
+    m.flight_hours_at_service,
+    m.cost,
+    m.remarks
 FROM MAINTENANCE m
 JOIN AIRCRAFT a
     ON m.aircraft_id = a.aircraft_id
@@ -272,13 +294,16 @@ SELECT
     ca.flight_id,
     ca.assigned_role,
     ca.assignment_status,
-    ca.assigned_at
+    ca.assigned_at,
+    ca.hours_at_flight,
+    ca.remarks
 FROM CREW_ASSIGNMENT ca
 JOIN CREW_MEMBER cm
     ON ca.crew_id = cm.crew_id;
 
 -- ============================================================
--- 12. STORED PROCEDURE: AIRCRAFT MAINTENANCE STATUS
+-- 12. STORED PROCEDURE:
+-- AIRCRAFT MAINTENANCE STATUS
 -- ============================================================
 
 DROP PROCEDURE IF EXISTS GetAircraftMaintenanceStatus;
@@ -291,13 +316,15 @@ CREATE PROCEDURE GetAircraftMaintenanceStatus(
 BEGIN
     SELECT
         a.aircraft_id,
-        a.registration_no,
+        a.registration_id,
         a.total_flight_hours,
         a.next_maintenance_due_hours,
         m.maintenance_id,
         mt.type_name AS maintenance_type,
         m.scheduled_start,
-        m.maintenance_status
+        m.maintenance_status,
+        m.priority,
+        m.flight_hours_at_service
     FROM AIRCRAFT a
     LEFT JOIN MAINTENANCE m
         ON a.aircraft_id = m.aircraft_id
@@ -314,6 +341,7 @@ DELIMITER ;
 -- ============================================================
 
 -- View all crew members and their availability
+
 SELECT
     crew_id,
     employee_code,
@@ -324,11 +352,13 @@ SELECT
 FROM CREW_MEMBER;
 
 -- View assignments for a particular flight
+
 SELECT *
 FROM crew_assignment_view
 WHERE flight_id = 1;
 
 -- Find expired or soon-to-expire licenses
+
 SELECT
     cm.employee_code,
     cm.first_name,
@@ -349,21 +379,26 @@ ORDER BY cl.expiry_date;
 -- ============================================================
 
 -- View all scheduled and active maintenance
+
 SELECT *
 FROM maintenance_overview_view
 WHERE maintenance_status IN ('SCHEDULED', 'IN_PROGRESS');
 
 -- Find parts that need reordering
+
 SELECT
     part_id,
     part_name,
     part_number,
-    quantity_in_stock,
-    reorder_level
+    manufacturer,
+    stock_quantity,
+    reorder_level,
+    part_status
 FROM MAINTENANCE_PART
-WHERE quantity_in_stock <= reorder_level;
+WHERE stock_quantity <= reorder_level;
 
 -- Calculate parts cost for each maintenance record
+
 SELECT
     m.maintenance_id,
     COALESCE(
@@ -375,14 +410,15 @@ LEFT JOIN MAINTENANCE_PART_USAGE mpu
 GROUP BY m.maintenance_id;
 
 -- View maintenance status changes
+
 SELECT *
 FROM MAINTENANCE_STATUS_AUDIT
 ORDER BY changed_at DESC;
 
 -- Call the procedure for aircraft ID 1
+
 CALL GetAircraftMaintenanceStatus(1);
 
 -- ============================================================
 -- END OF STUDENT 2 SQL SCRIPT
 -- ============================================================
-```

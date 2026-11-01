@@ -31,11 +31,11 @@ export async function GET(
          u.quantity_used,
          u.unit_cost_at_usage,
          u.quantity_used * u.unit_cost_at_usage AS total_cost,
-         u.used_at
+         u.replacement_reason
        FROM MAINTENANCE_PART_USAGE u
        JOIN MAINTENANCE_PART p ON p.part_id = u.part_id
        WHERE u.maintenance_id = ?
-       ORDER BY u.used_at DESC`,
+       ORDER BY u.usage_id DESC`,
       [maintenanceId]
     );
 
@@ -70,16 +70,22 @@ export async function POST(
     const body = await request.json();
     const partId = Number(body.part_id);
     const quantity = Number(body.quantity_used);
+    const replacementReason =
+      typeof body.replacement_reason === "string"
+        ? body.replacement_reason.trim()
+        : "";
 
     if (
       !Number.isInteger(partId) ||
       partId <= 0 ||
       !Number.isInteger(quantity) ||
-      quantity <= 0
+      quantity <= 0 ||
+      !replacementReason
     ) {
       return NextResponse.json(
         {
-          error: "Valid part_id and positive integer quantity_used are required",
+          error:
+            "Valid part_id, positive quantity_used and replacement_reason are required",
         },
         { status: 400 }
       );
@@ -126,7 +132,7 @@ export async function POST(
     }
 
     const [partRows] = await connection.execute(
-      `SELECT quantity_in_stock, unit_cost
+      `SELECT stock_quantity, unit_cost
        FROM MAINTENANCE_PART
        WHERE part_id = ?
        FOR UPDATE`,
@@ -134,7 +140,7 @@ export async function POST(
     );
 
     const parts = partRows as {
-      quantity_in_stock: number;
+      stock_quantity: number;
       unit_cost: number;
     }[];
 
@@ -147,7 +153,7 @@ export async function POST(
       );
     }
 
-    const availableStock = Number(parts[0].quantity_in_stock);
+    const availableStock = Number(parts[0].stock_quantity);
 
     if (availableStock < quantity) {
       await connection.rollback();
@@ -163,21 +169,33 @@ export async function POST(
 
     await connection.execute(
       `INSERT INTO MAINTENANCE_PART_USAGE
-       (maintenance_id, part_id, quantity_used, unit_cost_at_usage)
-       VALUES (?, ?, ?, ?)`,
-      [maintenanceId, partId, quantity, unitCost]
+       (
+         maintenance_id,
+         part_id,
+         quantity_used,
+         unit_cost_at_usage,
+         replacement_reason
+       )
+       VALUES (?, ?, ?, ?, ?)`,
+      [
+        maintenanceId,
+        partId,
+        quantity,
+        unitCost,
+        replacementReason,
+      ]
     );
 
     await connection.execute(
       `UPDATE MAINTENANCE_PART
-       SET quantity_in_stock = quantity_in_stock - ?
+       SET stock_quantity = stock_quantity - ?
        WHERE part_id = ?`,
       [quantity, partId]
     );
 
     await connection.execute(
       `UPDATE MAINTENANCE
-       SET maintenance_cost = maintenance_cost + ?
+       SET cost = cost + ?
        WHERE maintenance_id = ?`,
       [totalCost, maintenanceId]
     );
@@ -192,6 +210,7 @@ export async function POST(
         quantity_used: quantity,
         unit_cost: unitCost,
         total_cost: totalCost,
+        replacement_reason: replacementReason,
       },
       { status: 201 }
     );

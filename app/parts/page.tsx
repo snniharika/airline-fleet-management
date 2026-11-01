@@ -1,16 +1,16 @@
-
 "use client";
 
 import { useEffect, useState } from "react";
 
 type Part = {
   part_id: number;
-  part_name: string;
   part_number: string;
-  description: string | null;
-  quantity_in_stock: number;
+  part_name: string;
+  manufacturer: string;
   unit_cost: number;
+  stock_quantity: number;
   reorder_level: number;
+  part_status: string;
 };
 
 export default function PartsPage() {
@@ -21,6 +21,7 @@ export default function PartsPage() {
   async function loadParts() {
     try {
       setLoading(true);
+
       const response = await fetch("/api/parts");
 
       if (!response.ok) {
@@ -39,6 +40,11 @@ export default function PartsPage() {
   useEffect(() => {
     loadParts();
   }, []);
+
+  const lowStockCount = parts.filter(
+    (part) =>
+      Number(part.stock_quantity) <= Number(part.reorder_level)
+  ).length;
 
   return (
     <main style={{ padding: 32, maxWidth: 1100, margin: "0 auto" }}>
@@ -64,6 +70,7 @@ export default function PartsPage() {
       </button>
 
       {loading && <p>Loading inventory...</p>}
+
       {error && <p style={{ color: "crimson" }}>{error}</p>}
 
       {!loading && !error && (
@@ -76,36 +83,51 @@ export default function PartsPage() {
               marginBottom: 24,
             }}
           >
-            <div style={{ padding: 18, border: "1px solid #e2e8f0", borderRadius: 10 }}>
+            <div
+              style={{
+                padding: 18,
+                border: "1px solid #e2e8f0",
+                borderRadius: 10,
+              }}
+            >
               <p style={{ color: "#64748b" }}>Total part types</p>
               <h2 style={{ fontSize: 24, fontWeight: 700 }}>
                 {parts.length}
               </h2>
             </div>
 
-            <div style={{ padding: 18, border: "1px solid #e2e8f0", borderRadius: 10 }}>
+            <div
+              style={{
+                padding: 18,
+                border: "1px solid #e2e8f0",
+                borderRadius: 10,
+              }}
+            >
               <p style={{ color: "#64748b" }}>Low-stock items</p>
               <h2 style={{ fontSize: 24, fontWeight: 700 }}>
-                {parts.filter(
-                  (part) =>
-                    Number(part.quantity_in_stock) <=
-                    Number(part.reorder_level)
-                ).length}
+                {lowStockCount}
               </h2>
             </div>
           </div>
 
           <div style={{ overflowX: "auto" }}>
-            <table style={{ width: "100%", borderCollapse: "collapse" }}>
+            <table
+              style={{
+                width: "100%",
+                borderCollapse: "collapse",
+              }}
+            >
               <thead>
                 <tr>
                   {[
                     "ID",
                     "Part",
                     "Part Number",
+                    "Manufacturer",
                     "Stock",
                     "Reorder Level",
                     "Unit Cost",
+                    "Part Status",
                     "Stock Status",
                   ].map((heading) => (
                     <th
@@ -125,7 +147,7 @@ export default function PartsPage() {
               <tbody>
                 {parts.map((part) => {
                   const lowStock =
-                    Number(part.quantity_in_stock) <=
+                    Number(part.stock_quantity) <=
                     Number(part.reorder_level);
 
                   return (
@@ -133,28 +155,41 @@ export default function PartsPage() {
                       <td style={{ padding: 12, borderBottom: "1px solid #e2e8f0" }}>
                         {part.part_id}
                       </td>
+
                       <td style={{ padding: 12, borderBottom: "1px solid #e2e8f0" }}>
                         <strong>{part.part_name}</strong>
-                        {part.description && (
-                          <p style={{ color: "#64748b", marginTop: 4 }}>
-                            {part.description}
-                          </p>
-                        )}
                       </td>
+
                       <td style={{ padding: 12, borderBottom: "1px solid #e2e8f0" }}>
                         {part.part_number}
                       </td>
+
                       <td style={{ padding: 12, borderBottom: "1px solid #e2e8f0" }}>
-                        {part.quantity_in_stock}
+                        {part.manufacturer}
                       </td>
+
+                      <td style={{ padding: 12, borderBottom: "1px solid #e2e8f0" }}>
+                        {part.stock_quantity}
+                      </td>
+
                       <td style={{ padding: 12, borderBottom: "1px solid #e2e8f0" }}>
                         {part.reorder_level}
                       </td>
+
                       <td style={{ padding: 12, borderBottom: "1px solid #e2e8f0" }}>
                         ₹{Number(part.unit_cost).toFixed(2)}
                       </td>
+
                       <td style={{ padding: 12, borderBottom: "1px solid #e2e8f0" }}>
-                        <span style={{ color: lowStock ? "#dc2626" : "#15803d" }}>
+                        {part.part_status}
+                      </td>
+
+                      <td style={{ padding: 12, borderBottom: "1px solid #e2e8f0" }}>
+                        <span
+                          style={{
+                            color: lowStock ? "#dc2626" : "#15803d",
+                          }}
+                        >
                           {lowStock ? "LOW STOCK" : "IN STOCK"}
                         </span>
                       </td>
@@ -164,7 +199,7 @@ export default function PartsPage() {
 
                 {parts.length === 0 && (
                   <tr>
-                    <td colSpan={7} style={{ padding: 20 }}>
+                    <td colSpan={9} style={{ padding: 20 }}>
                       No parts found in inventory.
                     </td>
                   </tr>

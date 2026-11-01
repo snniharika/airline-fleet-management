@@ -1,4 +1,3 @@
-
 import { NextResponse } from "next/server";
 import { pool } from "@/lib/mysql";
 
@@ -7,12 +6,13 @@ export async function GET() {
     const [rows] = await pool.query(`
       SELECT
         part_id,
-        part_name,
         part_number,
-        description,
-        quantity_in_stock,
+        part_name,
+        manufacturer,
         unit_cost,
-        reorder_level
+        stock_quantity,
+        reorder_level,
+        part_status
       FROM MAINTENANCE_PART
       ORDER BY part_name
     `);
@@ -33,58 +33,75 @@ export async function POST(request: Request) {
     const body = await request.json();
 
     const {
-      part_name,
       part_number,
-      description,
-      quantity_in_stock,
+      part_name,
+      manufacturer,
       unit_cost,
+      stock_quantity,
       reorder_level,
+      part_status,
     } = body;
 
     if (
-      !part_name ||
       !part_number ||
-      quantity_in_stock == null ||
+      !part_name ||
+      !manufacturer ||
       unit_cost == null ||
-      reorder_level == null
+      stock_quantity == null ||
+      reorder_level == null ||
+      !part_status
     ) {
       return NextResponse.json(
-        { error: "Part name, number, stock, cost and reorder level are required" },
+        { error: "All maintenance part fields are required" },
         { status: 400 }
       );
     }
 
     if (
-      !Number.isInteger(Number(quantity_in_stock)) ||
-      Number(quantity_in_stock) < 0 ||
       !Number.isFinite(Number(unit_cost)) ||
       Number(unit_cost) < 0 ||
+      !Number.isInteger(Number(stock_quantity)) ||
+      Number(stock_quantity) < 0 ||
       !Number.isInteger(Number(reorder_level)) ||
       Number(reorder_level) < 0
     ) {
       return NextResponse.json(
-        { error: "Stock and reorder level must be non-negative integers; cost must be non-negative" },
+        {
+          error:
+            "Unit cost must be non-negative; stock and reorder level must be non-negative integers",
+        },
         { status: 400 }
       );
     }
 
     const [result] = await pool.execute(
       `INSERT INTO MAINTENANCE_PART
-       (part_name, part_number, description, quantity_in_stock,
-        unit_cost, reorder_level)
-       VALUES (?, ?, ?, ?, ?, ?)`,
+        (
+          part_number,
+          part_name,
+          manufacturer,
+          unit_cost,
+          stock_quantity,
+          reorder_level,
+          part_status
+        )
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
       [
-        part_name,
-        part_number,
-        description || null,
-        Number(quantity_in_stock),
+        part_number.trim(),
+        part_name.trim(),
+        manufacturer.trim(),
         Number(unit_cost),
+        Number(stock_quantity),
         Number(reorder_level),
+        part_status.trim(),
       ]
     );
 
     return NextResponse.json(
-      { message: "Maintenance part created successfully", result },
+      {
+        message: "Maintenance part created successfully",
+        result,
+      },
       { status: 201 }
     );
   } catch (error) {

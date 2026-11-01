@@ -13,13 +13,13 @@ type MaintenanceRecord = {
   actual_start?: string | null;
   actual_end?: string | null;
   maintenance_status: string;
-  description?: string | null;
-  maintenance_cost: number;
+  remarks?: string | null;
+  cost: number;
 };
 
 type AircraftOption = {
   aircraft_id: number;
-  registration_no: string;
+  registration_id: string;
 };
 
 type MaintenanceTypeOption = {
@@ -32,7 +32,7 @@ type FormData = {
   maintenance_type_id: string;
   scheduled_start: string;
   scheduled_end: string;
-  description: string;
+  remarks: string;
 };
 
 const initialForm: FormData = {
@@ -40,7 +40,7 @@ const initialForm: FormData = {
   maintenance_type_id: "",
   scheduled_start: "",
   scheduled_end: "",
-  description: "",
+  remarks: "",
 };
 
 export default function MaintenancePage() {
@@ -220,7 +220,7 @@ export default function MaintenancePage() {
 
   const totalCost = records.reduce(
     (sum, record) =>
-      sum + Number(record.maintenance_cost || 0),
+      sum + Number(record.cost || 0),
     0
   );
 
@@ -308,7 +308,7 @@ export default function MaintenancePage() {
                           key={item.aircraft_id}
                           value={item.aircraft_id}
                         >
-                          {item.registration_no} (ID: {item.aircraft_id})
+                          {item.registration_id} (ID: {item.aircraft_id})
                         </option>
                       ))}
                     </select>
@@ -397,16 +397,16 @@ export default function MaintenancePage() {
 
                 <div>
                   <label
-                    htmlFor="description"
+                    htmlFor="remarks"
                     className="mb-2 block text-sm font-medium text-gray-700"
                   >
                     Description
                   </label>
 
                   <textarea
-                    id="description"
-                    name="description"
-                    value={form.description}
+                    id="remarks"
+                    name="remarks"
+                    value={form.remarks}
                     onChange={handleInputChange}
                     rows={3}
                     placeholder="Enter maintenance details..."
@@ -574,7 +574,7 @@ export default function MaintenancePage() {
 
                       <td className="p-3">
                         ₹
-                        {Number(record.maintenance_cost || 0).toLocaleString(
+                        {Number(record.cost || 0).toLocaleString(
                           "en-IN"
                         )}
                       </td>

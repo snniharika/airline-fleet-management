@@ -2,7 +2,6 @@
 import { NextResponse } from "next/server";
 import { pool } from "@/lib/mysql";
 
-// GET: Fetch all maintenance records
 export async function GET() {
   try {
     const [rows] = await pool.query(`
@@ -15,9 +14,12 @@ export async function GET() {
         m.scheduled_end,
         m.actual_start,
         m.actual_end,
+        m.flight_hours_at_service,
         m.maintenance_status,
-        m.description,
-        m.maintenance_cost
+        m.priority,
+        m.technician_name,
+        m.cost,
+        m.remarks
       FROM MAINTENANCE m
       JOIN MAINTENANCE_TYPE mt
         ON m.maintenance_type_id = mt.maintenance_type_id
@@ -35,7 +37,6 @@ export async function GET() {
   }
 }
 
-// POST: Schedule maintenance for an aircraft
 export async function POST(request: Request) {
   try {
     const body = await request.json();
@@ -45,8 +46,13 @@ export async function POST(request: Request) {
       maintenance_type_id,
       scheduled_start,
       scheduled_end,
-      description,
+      priority = "MEDIUM",
+      technician_name,
+      remarks,
     } = body;
+
+    const aircraftId = Number(aircraft_id);
+    const maintenanceTypeId = Number(maintenance_type_id);
 
     if (
       !aircraft_id ||
@@ -63,13 +69,10 @@ export async function POST(request: Request) {
       );
     }
 
-    const aircraftId = Number(aircraft_id);
-    const maintenanceTypeId = Number(maintenance_type_id);
-
     if (
-      !Number.isSafeInteger(aircraftId) ||
+      !Number.isInteger(aircraftId) ||
       aircraftId <= 0 ||
-      !Number.isSafeInteger(maintenanceTypeId) ||
+      !Number.isInteger(maintenanceTypeId) ||
       maintenanceTypeId <= 0
     ) {
       return NextResponse.json(
@@ -78,12 +81,26 @@ export async function POST(request: Request) {
       );
     }
 
+    if (!["LOW", "MEDIUM", "HIGH", "CRITICAL"].includes(priority)) {
+      return NextResponse.json(
+        { error: "Invalid maintenance priority" },
+        { status: 400 }
+      );
+    }
+
     if (
-      typeof scheduled_start !== "string" ||
-      typeof scheduled_end !== "string"
+      technician_name != null &&
+      typeof technician_name !== "string"
     ) {
       return NextResponse.json(
-        { error: "Schedule dates must be valid date strings" },
+        { error: "Invalid technician name" },
+        { status: 400 }
+      );
+    }
+
+    if (remarks != null && typeof remarks !== "string") {
+      return NextResponse.json(
+        { error: "Invalid maintenance remarks" },
         { status: 400 }
       );
     }
@@ -108,9 +125,8 @@ export async function POST(request: Request) {
       );
     }
 
-    // Check whether the aircraft exists
     const [aircraftRows]: any = await pool.execute(
-      `SELECT aircraft_id
+      `SELECT aircraft_id, total_flight_hours
        FROM AIRCRAFT
        WHERE aircraft_id = ?`,
       [aircraftId]
@@ -123,7 +139,6 @@ export async function POST(request: Request) {
       );
     }
 
-    // Check whether the maintenance type exists
     const [typeRows]: any = await pool.execute(
       `SELECT maintenance_type_id
        FROM MAINTENANCE_TYPE
@@ -141,8 +156,7 @@ export async function POST(request: Request) {
     const mysqlStart = scheduled_start.replace("T", " ");
     const mysqlEnd = scheduled_end.replace("T", " ");
 
-    // Prevent overlapping maintenance for the same aircraft
-    const [overlapRows]: any = await pool.execute(
+    const [overlappingRows]: any = await pool.execute(
       `SELECT maintenance_id
        FROM MAINTENANCE
        WHERE aircraft_id = ?
@@ -153,7 +167,7 @@ export async function POST(request: Request) {
       [aircraftId, mysqlEnd, mysqlStart]
     );
 
-    if (overlapRows.length > 0) {
+    if (overlappingRows.length > 0) {
       return NextResponse.json(
         {
           error:
@@ -163,7 +177,10 @@ export async function POST(request: Request) {
       );
     }
 
-    // Create the maintenance schedule
+    const flightHoursAtService = Number(
+      aircraftRows[0].total_flight_hours
+    );
+
     const [result]: any = await pool.execute(
       `INSERT INTO MAINTENANCE
        (
@@ -171,17 +188,23 @@ export async function POST(request: Request) {
          maintenance_type_id,
          scheduled_start,
          scheduled_end,
-         description,
+         flight_hours_at_service,
          maintenance_status,
-         maintenance_cost
+         priority,
+         technician_name,
+         cost,
+         remarks
        )
-       VALUES (?, ?, ?, ?, ?, 'SCHEDULED', 0)`,
+       VALUES (?, ?, ?, ?, ?, 'SCHEDULED', ?, ?, 0, ?)`,
       [
         aircraftId,
         maintenanceTypeId,
         mysqlStart,
         mysqlEnd,
-        description?.trim() || null,
+        flightHoursAtService,
+        priority,
+        technician_name?.trim() || null,
+        remarks?.trim() || null,
       ]
     );
 

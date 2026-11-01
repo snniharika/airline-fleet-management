@@ -22,7 +22,10 @@ export async function GET() {
         f.scheduled_departure,
         f.scheduled_arrival,
         ca.assigned_role,
-        ca.assignment_status
+        ca.assignment_status,
+        ca.assigned_at,
+        ca.hours_at_flight,
+        ca.remarks
       FROM CREW_ASSIGNMENT ca
       JOIN CREW_MEMBER cm ON cm.crew_id = ca.crew_id
       JOIN FLIGHT f ON f.flight_id = ca.flight_id
@@ -47,6 +50,10 @@ export async function POST(request: Request) {
     const crewId = Number(body.crew_id);
     const flightId = Number(body.flight_id);
     const assignedRole = body.assigned_role;
+    const remarks =
+      typeof body.remarks === "string" && body.remarks.trim()
+        ? body.remarks.trim()
+        : null;
 
     if (
       !Number.isInteger(crewId) ||
@@ -69,7 +76,7 @@ export async function POST(request: Request) {
     }
 
     const [crewRows]: any = await pool.execute(
-      `SELECT crew_id, crew_role, availability_status
+      `SELECT crew_id, crew_role, availability_status, total_flight_hours
        FROM CREW_MEMBER
        WHERE crew_id = ?`,
       [crewId]
@@ -197,16 +204,32 @@ export async function POST(request: Request) {
 
     if (overlapRows.length > 0) {
       return NextResponse.json(
-        { error: "This crew member has another overlapping flight assignment." },
+        {
+          error:
+            "This crew member has another overlapping flight assignment.",
+        },
         { status: 409 }
       );
     }
 
     const [result]: any = await pool.execute(
       `INSERT INTO CREW_ASSIGNMENT
-       (crew_id, flight_id, assigned_role, assignment_status)
-       VALUES (?, ?, ?, 'ASSIGNED')`,
-      [crewId, flightId, assignedRole]
+       (
+         crew_id,
+         flight_id,
+         assigned_role,
+         assignment_status,
+         hours_at_flight,
+         remarks
+       )
+       VALUES (?, ?, ?, 'ASSIGNED', ?, ?)`,
+      [
+        crewId,
+        flightId,
+        assignedRole,
+        crew.total_flight_hours,
+        remarks,
+      ]
     );
 
     return NextResponse.json(

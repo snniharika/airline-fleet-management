@@ -35,7 +35,7 @@ export async function GET() {
           AS completed,
         SUM(CASE WHEN maintenance_status = 'ON_HOLD' THEN 1 ELSE 0 END)
           AS on_hold,
-        COALESCE(SUM(maintenance_cost), 0) AS total_maintenance_cost
+        COALESCE(SUM(cost), 0) AS total_maintenance_cost
       FROM MAINTENANCE
     `);
 

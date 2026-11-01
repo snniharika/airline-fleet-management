@@ -182,7 +182,7 @@ export async function POST(
     const [updatedAircraftRows] = await pool.execute<RowDataPacket[]>(
       `SELECT
          aircraft_id,
-         registration_no,
+         registration_id,
          total_flight_hours,
          total_flight_cycles,
          next_maintenance_due_hours
