@@ -286,24 +286,54 @@ CREATE PROCEDURE GetAircraftMaintenanceStatus(
     IN p_aircraft_id INT
 )
 BEGIN
+    DECLARE v_aircraft_count INT DEFAULT 0;
+
+    SELECT COUNT(*)
+    INTO v_aircraft_count
+    FROM AIRCRAFT
+    WHERE aircraft_id = p_aircraft_id;
+
+    IF v_aircraft_count = 0 THEN
+        SIGNAL SQLSTATE '45000'
+            SET MESSAGE_TEXT = 'Aircraft not found.';
+    END IF;
+
     SELECT
         a.aircraft_id,
         a.registration_id,
         a.total_flight_hours,
-        a.next_maintenance_due_hours,
-        m.maintenance_id,
-        mt.type_name AS maintenance_type,
-        m.scheduled_start,
-        m.maintenance_status,
-        m.priority,
-        m.flight_hours_at_service
+        am.maintenance_interval_hours,
+        CASE
+            WHEN COALESCE(am.maintenance_interval_hours, 0) <= 0
+                THEN NULL
+            WHEN a.next_maintenance_due_hours IS NOT NULL
+                THEN GREATEST(
+                    a.next_maintenance_due_hours - a.total_flight_hours,
+                    0
+                )
+            ELSE
+                CASE
+                    WHEN a.total_flight_hours > 0
+                         AND MOD(
+                             a.total_flight_hours,
+                             am.maintenance_interval_hours
+                         ) = 0
+                        THEN 0
+                    ELSE GREATEST(
+                        am.maintenance_interval_hours
+                            - MOD(
+                                a.total_flight_hours,
+                                am.maintenance_interval_hours
+                            ),
+                        0
+                    )
+                END
+        END AS hours_remaining,
+        a.aircraft_status
     FROM AIRCRAFT a
-    LEFT JOIN MAINTENANCE m
-        ON a.aircraft_id = m.aircraft_id
-    LEFT JOIN MAINTENANCE_TYPE mt
-        ON m.maintenance_type_id = mt.maintenance_type_id
-    WHERE a.aircraft_id = p_aircraft_id
-    ORDER BY m.scheduled_start DESC;
+    JOIN AIRCRAFT_MODEL am
+        ON am.model_id = a.model_id
+    WHERE a.aircraft_id = p_aircraft_id;
 END$$
 
 DELIMITER ;

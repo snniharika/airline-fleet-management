@@ -88,8 +88,12 @@ export default function CrewPage() {
   }
 
   useEffect(() => {
-    loadCrew();
-    loadAirports();
+    const timer = window.setTimeout(() => {
+      void loadCrew();
+      void loadAirports();
+    }, 0);
+
+    return () => window.clearTimeout(timer);
   }, []);
 
   async function addCrewMember(

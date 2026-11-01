@@ -43,13 +43,17 @@ export async function POST(request: Request) {
     } = body;
 
     if (
-      !part_number ||
-      !part_name ||
-      !manufacturer ||
+      typeof part_number !== "string" ||
+      !part_number.trim() ||
+      typeof part_name !== "string" ||
+      !part_name.trim() ||
+      typeof manufacturer !== "string" ||
+      !manufacturer.trim() ||
+      typeof part_status !== "string" ||
+      !part_status.trim() ||
       unit_cost == null ||
       stock_quantity == null ||
-      reorder_level == null ||
-      !part_status
+      reorder_level == null
     ) {
       return NextResponse.json(
         { error: "All maintenance part fields are required" },
@@ -105,6 +109,18 @@ export async function POST(request: Request) {
       { status: 201 }
     );
   } catch (error) {
+    if (
+      typeof error === "object" &&
+      error !== null &&
+      "code" in error &&
+      error.code === "ER_DUP_ENTRY"
+    ) {
+      return NextResponse.json(
+        { error: "A part with this part number already exists" },
+        { status: 409 }
+      );
+    }
+
     console.error("Create part error:", error);
 
     return NextResponse.json(

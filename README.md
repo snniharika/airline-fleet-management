@@ -1,36 +1,58 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Airline Fleet Management System
 
-## Getting Started
+A web-based application built using Next.js, TypeScript, MySQL and MongoDB.
 
-First, run the development server:
+## Technology Stack
+- Frontend: Next.js, React, TypeScript
+- Backend: Next.js API routes
+- Database: MySQL 8.0+ and MongoDB
+- Runtime: Node.js 22+
 
+## Prerequisites
+- Node.js 22+
+- npm
+- MySQL 8.0+
+- MongoDB connection for maintenance reports
+
+## Installation
 ```bash
+npm install
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Open http://localhost:3000.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Database Setup
+1. Create the `airline_management` database.
+2. Obtain the Student 1 base-table creation SQL from the Student 1 module owner. It is missing from this repository.
+3. Create the Student 1 base tables first.
+4. Execute `database/student2_crew_maintenance.sql` once.
+5. Execute `database/seed_student1.sql`.
+6. Execute `database/views_student1.sql`.
+7. Verify using `database/verify_schema.sql`.
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+The Student 2 SQL creates the crew and maintenance tables, indexes, trigger, stored procedure and maintenance overview view. Its index statements are not safe to rerun.
 
-## Learn More
+## Environment Variables
+Create `.env.local` in the project root:
+```env
+MYSQL_HOST=localhost
+MYSQL_PORT=3306
+MYSQL_DATABASE=airline_management
+MYSQL_USER=root
+MYSQL_PASSWORD=your_mysql_password
+MONGODB_URI=your_mongodb_connection_string
+MONGODB_DATABASE=airline_management
+```
+Never commit credentials.
 
-To learn more about Next.js, take a look at the following resources:
+## MongoDB Indexes
+After configuring MongoDB, run `npm run mongodb:indexes` once.
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+## Other Commands
+- `npm run build` - production build
+- `npm start` - production server
+- `npm run lint` - lint checks
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+## Migration Warning
+`database/migrate_to_submitted_schema.sql` is for an existing legacy database. Back up and review the database before using it. Do not use it for fresh installation.
