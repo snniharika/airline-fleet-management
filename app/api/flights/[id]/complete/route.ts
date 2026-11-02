@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import pool from "@/lib/mysql";
-import type { PoolConnection, RowDataPacket } from "mysql2/promise";
+import type {
+  PoolConnection,
+  RowDataPacket,
+} from "mysql2/promise";
 
 type RouteContext = {
   params: Promise<{ id: string }>;
@@ -82,9 +85,10 @@ export async function POST(
     await connection.beginTransaction();
     transactionStarted = true;
 
+    // Lock the flight to prevent duplicate completion.
     const [flightRows] = await connection.execute<RowDataPacket[]>(
       `SELECT *
-       FROM flight
+       FROM FLIGHT
        WHERE flight_id = ?
        FOR UPDATE`,
       [flightId]
@@ -125,9 +129,10 @@ export async function POST(
       );
     }
 
+    // Lock aircraft before updating its accumulated hours.
     const [aircraftRows] = await connection.execute<RowDataPacket[]>(
       `SELECT aircraft_id, total_flight_hours, total_flight_cycles
-       FROM aircraft
+       FROM AIRCRAFT
        WHERE aircraft_id = ?
        FOR UPDATE`,
       [flight.aircraft_id]
@@ -143,11 +148,29 @@ export async function POST(
       );
     }
 
+    // Get active crew assignments for this flight.
+    const [assignmentRows] =
+      await connection.execute<RowDataPacket[]>(
+        `SELECT assignment_id, crew_id
+         FROM CREW_ASSIGNMENT
+         WHERE flight_id = ?
+           AND assignment_status IN ('ASSIGNED', 'CONFIRMED')
+         FOR UPDATE`,
+        [flightId]
+      );
+
+    const crewIds = [
+      ...new Set(
+        assignmentRows.map((assignment) => Number(assignment.crew_id))
+      ),
+    ];
+
     const actualDepartureSQL = toMySQLDateTime(actualDeparture);
     const actualArrivalSQL = toMySQLDateTime(actualArrival);
 
+    // Record the flight completion.
     await connection.execute(
-      `UPDATE flight
+      `UPDATE FLIGHT
        SET actual_departure = ?,
            actual_arrival = ?,
            flight_duration = ?,
@@ -163,43 +186,98 @@ export async function POST(
       ]
     );
 
+    // Update aircraft hours and flight cycles.
     await connection.execute(
-      `UPDATE aircraft
+      `UPDATE AIRCRAFT
        SET total_flight_hours = total_flight_hours + ?,
            total_flight_cycles = total_flight_cycles + 1
        WHERE aircraft_id = ?`,
       [durationHours, flight.aircraft_id]
     );
 
-    await connection.commit();
-    transactionStarted = false;
-
-    const [updatedFlightRows] = await pool.execute<RowDataPacket[]>(
-      "SELECT * FROM flight WHERE flight_id = ?",
+    // Mark this flight's active crew assignments as completed.
+    await connection.execute(
+      `UPDATE CREW_ASSIGNMENT
+       SET assignment_status = 'COMPLETED'
+       WHERE flight_id = ?
+         AND assignment_status IN ('ASSIGNED', 'CONFIRMED')`,
       [flightId]
     );
 
-    const [updatedAircraftRows] = await pool.execute<RowDataPacket[]>(
-      `SELECT
-         aircraft_id,
-         registration_no,
-         total_flight_hours,
-         total_flight_cycles,
-         next_maintenance_due_hours
-       FROM aircraft
-       WHERE aircraft_id = ?`,
-      [flight.aircraft_id]
-    );
+    // Update each assigned crew member exactly once.
+    for (const crewId of crewIds) {
+      await connection.execute(
+        `UPDATE CREW_MEMBER
+         SET total_flight_hours = total_flight_hours + ?,
+             monthly_flight_hours = (
+               SELECT COALESCE(SUM(f.flight_hours_recorded), 0)
+               FROM CREW_ASSIGNMENT ca
+               JOIN FLIGHT f ON f.flight_id = ca.flight_id
+               WHERE ca.crew_id = ?
+                 AND ca.assignment_status = 'COMPLETED'
+                 AND f.flight_status = 'ARRIVED'
+                 AND f.actual_departure >=
+                     DATE_FORMAT(CURDATE(), '%Y-%m-01')
+                 AND f.actual_departure <
+                     DATE_ADD(
+                       DATE_FORMAT(CURDATE(), '%Y-%m-01'),
+                       INTERVAL 1 MONTH
+                     )
+             )
+         WHERE crew_id = ?`,
+        [durationHours, crewId, crewId]
+      );
+    }
+
+    await connection.commit();
+    transactionStarted = false;
+
+    const [updatedFlightRows] =
+      await connection.execute<RowDataPacket[]>(
+        "SELECT * FROM FLIGHT WHERE flight_id = ?",
+        [flightId]
+      );
+
+    const [updatedAircraftRows] =
+      await connection.execute<RowDataPacket[]>(
+        `SELECT
+           aircraft_id,
+           registration_id,
+           total_flight_hours,
+           total_flight_cycles,
+           next_maintenance_due_hours
+         FROM AIRCRAFT
+         WHERE aircraft_id = ?`,
+        [flight.aircraft_id]
+      );
+
+    const updatedCrewRows =
+      crewIds.length > 0
+        ? (
+            await connection.execute<RowDataPacket[]>(
+              `SELECT
+                 crew_id,
+                 total_flight_hours,
+                 monthly_flight_hours
+               FROM CREW_MEMBER
+               WHERE crew_id IN (${crewIds.map(() => "?").join(",")})`,
+              crewIds
+            )
+          )[0]
+        : [];
 
     return NextResponse.json({
-      message: "Flight completed and aircraft flight hours updated successfully.",
+      message:
+        "Flight completed. Aircraft and assigned crew flight hours updated successfully.",
       flight: updatedFlightRows[0],
       aircraft: updatedAircraftRows[0],
+      crew: updatedCrewRows,
       flight_hours_added: durationHours,
     });
   } catch (error) {
     if (connection && transactionStarted) {
       await connection.rollback();
+      transactionStarted = false;
     }
 
     console.error("Failed to complete flight:", error);

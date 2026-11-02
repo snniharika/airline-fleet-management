@@ -1,7 +1,7 @@
 
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
 type CrewMember = {
   crew_id: number;
@@ -48,7 +48,7 @@ export default function AssignmentsPage() {
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
 
-  async function loadData() {
+  const loadData = useCallback(async () => {
     try {
       setLoading(true);
       setError("");
@@ -86,16 +86,22 @@ export default function AssignmentsPage() {
     } catch (err) {
       console.error(err);
       setError(
-        err instanceof Error ? err.message : "Unable to load scheduling data."
+        err instanceof Error
+          ? err.message
+          : "Unable to load scheduling data."
       );
     } finally {
       setLoading(false);
     }
-  }
+  }, []);
 
   useEffect(() => {
-    loadData();
-  }, []);
+    const timer = window.setTimeout(() => {
+      void loadData();
+    }, 0);
+
+    return () => window.clearTimeout(timer);
+  }, [loadData]);
 
   const selectedCrew = crew.find(
     (member) => String(member.crew_id) === crewId

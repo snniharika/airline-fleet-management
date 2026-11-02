@@ -1,6 +1,10 @@
-
 import { NextResponse } from "next/server";
-import { pool } from "@/lib/mysql";
+import pool from "@/lib/mysql";
+import type {
+  PoolConnection,
+  RowDataPacket,
+  ResultSetHeader,
+} from "mysql2/promise";
 
 const ALLOWED_ROLES = [
   "CAPTAIN",
@@ -22,7 +26,10 @@ export async function GET() {
         f.scheduled_departure,
         f.scheduled_arrival,
         ca.assigned_role,
-        ca.assignment_status
+        ca.assignment_status,
+        ca.assigned_at,
+        ca.hours_at_flight,
+        ca.remarks
       FROM CREW_ASSIGNMENT ca
       JOIN CREW_MEMBER cm ON cm.crew_id = ca.crew_id
       JOIN FLIGHT f ON f.flight_id = ca.flight_id
@@ -34,13 +41,16 @@ export async function GET() {
     console.error("Fetch crew assignments error:", error);
 
     return NextResponse.json(
-      { error: "Failed to fetch crew assignments" },
+      { error: "Failed to fetch crew assignments." },
       { status: 500 }
     );
   }
 }
 
 export async function POST(request: Request) {
+  let connection: PoolConnection | undefined;
+  let transactionStarted = false;
+
   try {
     const body = await request.json();
 
@@ -48,12 +58,17 @@ export async function POST(request: Request) {
     const flightId = Number(body.flight_id);
     const assignedRole = body.assigned_role;
 
+    const remarks =
+      typeof body.remarks === "string" && body.remarks.trim()
+        ? body.remarks.trim()
+        : null;
+
     if (
       !Number.isInteger(crewId) ||
       crewId <= 0 ||
       !Number.isInteger(flightId) ||
       flightId <= 0 ||
-      !assignedRole
+      typeof assignedRole !== "string"
     ) {
       return NextResponse.json(
         { error: "Select a crew member, flight and role." },
@@ -68,14 +83,28 @@ export async function POST(request: Request) {
       );
     }
 
-    const [crewRows]: any = await pool.execute(
-      `SELECT crew_id, crew_role, availability_status
+    connection = await pool.getConnection();
+    await connection.beginTransaction();
+    transactionStarted = true;
+
+    // Lock the crew member so simultaneous assignment requests
+    // for this person must wait for the first transaction.
+    const [crewRows] = await connection.execute<RowDataPacket[]>(
+      `SELECT
+         crew_id,
+         crew_role,
+         availability_status,
+         total_flight_hours
        FROM CREW_MEMBER
-       WHERE crew_id = ?`,
+       WHERE crew_id = ?
+       FOR UPDATE`,
       [crewId]
     );
 
     if (crewRows.length === 0) {
+      await connection.rollback();
+      transactionStarted = false;
+
       return NextResponse.json(
         { error: "Crew member not found." },
         { status: 404 }
@@ -85,6 +114,9 @@ export async function POST(request: Request) {
     const crew = crewRows[0];
 
     if (crew.availability_status !== "AVAILABLE") {
+      await connection.rollback();
+      transactionStarted = false;
+
       return NextResponse.json(
         { error: "This crew member is not available." },
         { status: 409 }
@@ -98,21 +130,33 @@ export async function POST(request: Request) {
       (assignedRole === "CABIN_CREW" &&
         crew.crew_role !== "CABIN_CREW")
     ) {
+      await connection.rollback();
+      transactionStarted = false;
+
       return NextResponse.json(
-        { error: "Selected crew member is not qualified for this role." },
+        {
+          error:
+            "Selected crew member is not qualified for this role.",
+        },
         { status: 400 }
       );
     }
 
-    const [flightRows]: any = await pool.execute(
-      `SELECT flight_id, scheduled_departure, scheduled_arrival,
-              flight_status
+    const [flightRows] = await connection.execute<RowDataPacket[]>(
+      `SELECT
+         flight_id,
+         scheduled_departure,
+         scheduled_arrival,
+         flight_status
        FROM FLIGHT
        WHERE flight_id = ?`,
       [flightId]
     );
 
     if (flightRows.length === 0) {
+      await connection.rollback();
+      transactionStarted = false;
+
       return NextResponse.json(
         { error: "Flight not found." },
         { status: 404 }
@@ -121,10 +165,16 @@ export async function POST(request: Request) {
 
     const flight = flightRows[0];
 
-    if (flight.flight_status === "CANCELLED") {
+    if (
+      flight.flight_status === "CANCELLED" ||
+      flight.flight_status === "ARRIVED"
+    ) {
+      await connection.rollback();
+      transactionStarted = false;
+
       return NextResponse.json(
-        { error: "Cannot assign crew to a cancelled flight." },
-        { status: 400 }
+        { error: "Cannot assign crew to a cancelled or completed flight." },
+        { status: 409 }
       );
     }
 
@@ -132,10 +182,9 @@ export async function POST(request: Request) {
       assignedRole === "CAPTAIN" ||
       assignedRole === "FIRST_OFFICER"
     ) {
-      const requiredLicense =
-        assignedRole === "CAPTAIN" ? "PILOT" : crew.crew_role;
+      const requiredLicense = "PILOT_LICENSE";
 
-      const [licenseRows]: any = await pool.execute(
+      const [licenseRows] = await connection.execute<RowDataPacket[]>(
         `SELECT license_id
          FROM CREW_LICENSE
          WHERE crew_id = ?
@@ -153,6 +202,9 @@ export async function POST(request: Request) {
       );
 
       if (licenseRows.length === 0) {
+        await connection.rollback();
+        transactionStarted = false;
+
         return NextResponse.json(
           {
             error: `A valid ${requiredLicense} licence is required on the flight date.`,
@@ -162,7 +214,8 @@ export async function POST(request: Request) {
       }
     }
 
-    const [duplicateRows]: any = await pool.execute(
+    // Prevent duplicate assignments even if the role differs.
+    const [duplicateRows] = await connection.execute<RowDataPacket[]>(
       `SELECT assignment_id
        FROM CREW_ASSIGNMENT
        WHERE crew_id = ?
@@ -173,13 +226,18 @@ export async function POST(request: Request) {
     );
 
     if (duplicateRows.length > 0) {
+      await connection.rollback();
+      transactionStarted = false;
+
       return NextResponse.json(
-        { error: "This crew member is already assigned to this flight." },
+        {
+          error: "This crew member is already assigned to this flight.",
+        },
         { status: 409 }
       );
     }
 
-    const [overlapRows]: any = await pool.execute(
+    const [overlapRows] = await connection.execute<RowDataPacket[]>(
       `SELECT ca.assignment_id
        FROM CREW_ASSIGNMENT ca
        JOIN FLIGHT f ON f.flight_id = ca.flight_id
@@ -196,18 +254,40 @@ export async function POST(request: Request) {
     );
 
     if (overlapRows.length > 0) {
+      await connection.rollback();
+      transactionStarted = false;
+
       return NextResponse.json(
-        { error: "This crew member has another overlapping flight assignment." },
+        {
+          error:
+            "This crew member has another overlapping flight assignment.",
+        },
         { status: 409 }
       );
     }
 
-    const [result]: any = await pool.execute(
+    const [result] = await connection.execute<ResultSetHeader>(
       `INSERT INTO CREW_ASSIGNMENT
-       (crew_id, flight_id, assigned_role, assignment_status)
-       VALUES (?, ?, ?, 'ASSIGNED')`,
-      [crewId, flightId, assignedRole]
+       (
+         crew_id,
+         flight_id,
+         assigned_role,
+         assignment_status,
+         hours_at_flight,
+         remarks
+       )
+       VALUES (?, ?, ?, 'ASSIGNED', ?, ?)`,
+      [
+        crewId,
+        flightId,
+        assignedRole,
+        crew.total_flight_hours,
+        remarks,
+      ]
     );
+
+    await connection.commit();
+    transactionStarted = false;
 
     return NextResponse.json(
       {
@@ -216,12 +296,31 @@ export async function POST(request: Request) {
       },
       { status: 201 }
     );
-  } catch (error) {
+  } catch (error: unknown) {
+    if (connection && transactionStarted) {
+      await connection.rollback();
+      transactionStarted = false;
+    }
+
+    if (
+      typeof error === "object" &&
+      error !== null &&
+      "code" in error &&
+      error.code === "ER_DUP_ENTRY"
+    ) {
+      return NextResponse.json(
+        { error: "This crew assignment already exists." },
+        { status: 409 }
+      );
+    }
+
     console.error("Create crew assignment error:", error);
 
     return NextResponse.json(
       { error: "Failed to create crew assignment." },
       { status: 500 }
     );
+  } finally {
+    connection?.release();
   }
 }

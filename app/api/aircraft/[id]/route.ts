@@ -8,7 +8,7 @@ type RouteContext = {
 
 interface AircraftRow extends RowDataPacket {
   aircraft_id: number;
-  registration_no: string;
+  registration_id: string;
 }
 
 const allowedStatuses = [
@@ -19,7 +19,7 @@ const allowedStatuses = [
 ] as const;
 
 const allowedFields = [
-  "registration_no",
+  "registration_id",
   "model_id",
   "current_airport_id",
   "manufacture_date",
@@ -49,7 +49,7 @@ export async function GET(
     const [rows] = await pool.execute<RowDataPacket[]>(
       `SELECT
         a.aircraft_id,
-        a.registration_no,
+        a.registration_id,
         a.model_id,
         a.current_airport_id,
         a.manufacture_date,
@@ -133,7 +133,7 @@ export async function PUT(
     }
 
     const [existingRows] = await pool.execute<AircraftRow[]>(
-      "SELECT aircraft_id, registration_no FROM aircraft WHERE aircraft_id = ?",
+      "SELECT aircraft_id, registration_id FROM aircraft WHERE aircraft_id = ?",
       [aircraftId]
     );
 
@@ -146,7 +146,7 @@ export async function PUT(
 
     const normalizedEntries: [string, unknown][] = entries.map(
       ([key, value]) => {
-        if (key === "registration_no" && typeof value === "string") {
+        if (key === "registration_id" && typeof value === "string") {
           return [key, value.trim().toUpperCase()];
         }
 
@@ -226,7 +226,7 @@ export async function PUT(
       }
 
       if (
-        key === "registration_no" &&
+        key === "registration_id" &&
         (typeof value !== "string" || value.length === 0)
       ) {
         return NextResponse.json(
@@ -270,7 +270,7 @@ export async function PUT(
 
     if (result.affectedRows === 0) {
       const [checkRows] = await pool.execute<AircraftRow[]>(
-        "SELECT aircraft_id, registration_no FROM aircraft WHERE aircraft_id = ?",
+        "SELECT aircraft_id, registration_id FROM aircraft WHERE aircraft_id = ?",
         [aircraftId]
       );
 

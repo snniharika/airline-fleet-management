@@ -47,7 +47,7 @@ ON DUPLICATE KEY UPDATE
 
 INSERT INTO AIRCRAFT
     (
-        registration_no,
+        registration_id,
         model_id,
         current_airport_id,
         manufacture_date,
@@ -84,7 +84,7 @@ ON DUPLICATE KEY UPDATE
 
 INSERT INTO AIRCRAFT
     (
-        registration_no,
+        registration_id,
         model_id,
         current_airport_id,
         manufacture_date,
@@ -121,7 +121,7 @@ ON DUPLICATE KEY UPDATE
 
 INSERT INTO AIRCRAFT
     (
-        registration_no,
+        registration_id,
         model_id,
         current_airport_id,
         manufacture_date,
@@ -181,7 +181,7 @@ SELECT
 FROM AIRCRAFT ac
 JOIN AIRPORT dep ON dep.airport_code = 'BLR'
 JOIN AIRPORT arr ON arr.airport_code = 'DEL'
-WHERE ac.registration_no = 'VT-ABC'
+WHERE ac.registration_id = 'VT-ABC'
   AND NOT EXISTS (
       SELECT 1
       FROM FLIGHT f
@@ -210,7 +210,7 @@ SELECT
 FROM AIRCRAFT ac
 JOIN AIRPORT dep ON dep.airport_code = 'DEL'
 JOIN AIRPORT arr ON arr.airport_code = 'BOM'
-WHERE ac.registration_no = 'VT-DEF'
+WHERE ac.registration_id = 'VT-DEF'
   AND NOT EXISTS (
       SELECT 1
       FROM FLIGHT f
@@ -239,7 +239,7 @@ SELECT
 FROM AIRCRAFT ac
 JOIN AIRPORT dep ON dep.airport_code = 'BOM'
 JOIN AIRPORT arr ON arr.airport_code = 'MAA'
-WHERE ac.registration_no = 'VT-GHI'
+WHERE ac.registration_id = 'VT-GHI'
   AND NOT EXISTS (
       SELECT 1
       FROM FLIGHT f
@@ -268,7 +268,7 @@ SELECT
 FROM AIRCRAFT ac
 JOIN AIRPORT dep ON dep.airport_code = 'BLR'
 JOIN AIRPORT arr ON arr.airport_code = 'MAA'
-WHERE ac.registration_no = 'VT-ABC'
+WHERE ac.registration_id = 'VT-ABC'
   AND NOT EXISTS (
       SELECT 1
       FROM FLIGHT f

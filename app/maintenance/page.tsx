@@ -6,6 +6,7 @@ import { useCallback, useEffect, useState } from "react";
 type MaintenanceRecord = {
   maintenance_id: number;
   aircraft_id: number;
+  registration_id?: string;
   maintenance_type_id: number;
   type_name?: string;
   scheduled_start: string;
@@ -13,13 +14,13 @@ type MaintenanceRecord = {
   actual_start?: string | null;
   actual_end?: string | null;
   maintenance_status: string;
-  description?: string | null;
-  maintenance_cost: number;
+  remarks?: string | null;
+  cost: number;
 };
 
 type AircraftOption = {
   aircraft_id: number;
-  registration_no: string;
+  registration_id: string;
 };
 
 type MaintenanceTypeOption = {
@@ -32,7 +33,7 @@ type FormData = {
   maintenance_type_id: string;
   scheduled_start: string;
   scheduled_end: string;
-  description: string;
+  remarks: string;
 };
 
 const initialForm: FormData = {
@@ -40,7 +41,7 @@ const initialForm: FormData = {
   maintenance_type_id: "",
   scheduled_start: "",
   scheduled_end: "",
-  description: "",
+  remarks: "",
 };
 
 export default function MaintenancePage() {
@@ -53,10 +54,12 @@ export default function MaintenancePage() {
   const [loading, setLoading] = useState(true);
   const [optionsLoading, setOptionsLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
+  const [updatingId, setUpdatingId] = useState<number | null>(null);
 
   const [error, setError] = useState("");
   const [formError, setFormError] = useState("");
   const [success, setSuccess] = useState("");
+  const [actionError, setActionError] = useState("");
 
   const [filter, setFilter] = useState("ALL");
   const [showForm, setShowForm] = useState(false);
@@ -109,8 +112,12 @@ export default function MaintenancePage() {
   }, []);
 
   useEffect(() => {
-    fetchMaintenance();
-    fetchOptions();
+    const timer = window.setTimeout(() => {
+      void fetchMaintenance();
+      void fetchOptions();
+    }, 0);
+
+    return () => window.clearTimeout(timer);
   }, [fetchMaintenance, fetchOptions]);
 
   const handleInputChange = (
@@ -188,6 +195,56 @@ export default function MaintenancePage() {
     }
   };
 
+  const updateMaintenanceStatus = async (
+    maintenanceId: number,
+    newStatus: string
+  ) => {
+    setActionError("");
+    setSuccess("");
+
+    try {
+      setUpdatingId(maintenanceId);
+
+      const response = await fetch(
+        `/api/maintenance/${maintenanceId}`,
+        {
+          method: "PUT",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            maintenance_status: newStatus,
+          }),
+        }
+      );
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(
+          data.error || "Failed to update maintenance status."
+        );
+      }
+
+      setSuccess(
+        `Maintenance #${maintenanceId} updated to ${newStatus.replace(
+          "_",
+          " "
+        )}.`
+      );
+
+      await fetchMaintenance();
+    } catch (err) {
+      setActionError(
+        err instanceof Error
+          ? err.message
+          : "Failed to update maintenance status."
+      );
+    } finally {
+      setUpdatingId(null);
+    }
+  };
+
   const filteredRecords =
     filter === "ALL"
       ? records
@@ -203,6 +260,8 @@ export default function MaintenancePage() {
         return "bg-blue-100 text-blue-700";
       case "CANCELLED":
         return "bg-red-100 text-red-700";
+      case "ON_HOLD":
+        return "bg-orange-100 text-orange-700";
       default:
         return "bg-yellow-100 text-yellow-700";
     }
@@ -219,8 +278,7 @@ export default function MaintenancePage() {
   };
 
   const totalCost = records.reduce(
-    (sum, record) =>
-      sum + Number(record.maintenance_cost || 0),
+    (sum, record) => sum + Number(record.cost || 0),
     0
   );
 
@@ -228,10 +286,101 @@ export default function MaintenancePage() {
     (record) => record.maintenance_status === "IN_PROGRESS"
   ).length;
 
+  const renderActions = (record: MaintenanceRecord) => {
+    const status = record.maintenance_status;
+    const isUpdating = updatingId === record.maintenance_id;
+
+    const buttonClass =
+      "rounded-md px-3 py-1.5 text-xs font-medium text-white disabled:cursor-not-allowed disabled:opacity-50";
+
+    if (status === "COMPLETED" || status === "CANCELLED") {
+      return <span className="text-gray-400">No actions</span>;
+    }
+
+    return (
+      <div className="flex min-w-[230px] flex-wrap gap-2">
+        {(status === "SCHEDULED" || status === "ON_HOLD") && (
+          <button
+            type="button"
+            disabled={updatingId !== null}
+            onClick={() =>
+              updateMaintenanceStatus(
+                record.maintenance_id,
+                "IN_PROGRESS"
+              )
+            }
+            className={`${buttonClass} bg-blue-600 hover:bg-blue-700`}
+          >
+            {isUpdating ? "Updating..." : "Start / Resume"}
+          </button>
+        )}
+
+        {(status === "SCHEDULED" || status === "IN_PROGRESS") && (
+          <button
+            type="button"
+            disabled={updatingId !== null}
+            onClick={() =>
+              updateMaintenanceStatus(
+                record.maintenance_id,
+                "ON_HOLD"
+              )
+            }
+            className={`${buttonClass} bg-orange-500 hover:bg-orange-600`}
+          >
+            Put On Hold
+          </button>
+        )}
+
+        {status === "IN_PROGRESS" && (
+          <button
+            type="button"
+            disabled={updatingId !== null}
+            onClick={() => {
+              const confirmed = window.confirm(
+                `Mark maintenance #${record.maintenance_id} as completed?`
+              );
+
+              if (confirmed) {
+                updateMaintenanceStatus(
+                  record.maintenance_id,
+                  "COMPLETED"
+                );
+              }
+            }}
+            className={`${buttonClass} bg-green-600 hover:bg-green-700`}
+          >
+            Complete
+          </button>
+        )}
+
+        {(status === "SCHEDULED" || status === "ON_HOLD") && (
+          <button
+            type="button"
+            disabled={updatingId !== null}
+            onClick={() => {
+              const confirmed = window.confirm(
+                `Cancel maintenance #${record.maintenance_id}?`
+              );
+
+              if (confirmed) {
+                updateMaintenanceStatus(
+                  record.maintenance_id,
+                  "CANCELLED"
+                );
+              }
+            }}
+            className={`${buttonClass} bg-red-600 hover:bg-red-700`}
+          >
+            Cancel
+          </button>
+        )}
+      </div>
+    );
+  };
+
   return (
     <main className="min-h-screen bg-gray-50 p-6 md:p-10">
       <div className="mx-auto max-w-7xl space-y-8">
-        {/* Page heading */}
         <div className="flex flex-wrap items-center justify-between gap-4">
           <div>
             <h1 className="text-3xl font-bold text-gray-900">
@@ -264,14 +413,18 @@ export default function MaintenancePage() {
           </div>
         </div>
 
-        {/* Success message */}
         {success && (
           <div className="rounded-lg border border-green-200 bg-green-50 p-4 text-green-700">
             {success}
           </div>
         )}
 
-        {/* Add maintenance form */}
+        {actionError && (
+          <div className="rounded-lg border border-red-200 bg-red-50 p-4 text-red-700">
+            {actionError}
+          </div>
+        )}
+
         {showForm && (
           <section className="rounded-xl bg-white p-6 shadow-sm">
             <h2 className="mb-6 text-xl font-semibold text-gray-900">
@@ -308,7 +461,7 @@ export default function MaintenancePage() {
                           key={item.aircraft_id}
                           value={item.aircraft_id}
                         >
-                          {item.registration_no} (ID: {item.aircraft_id})
+                          {item.registration_id} (ID: {item.aircraft_id})
                         </option>
                       ))}
                     </select>
@@ -397,16 +550,16 @@ export default function MaintenancePage() {
 
                 <div>
                   <label
-                    htmlFor="description"
+                    htmlFor="remarks"
                     className="mb-2 block text-sm font-medium text-gray-700"
                   >
                     Description
                   </label>
 
                   <textarea
-                    id="description"
-                    name="description"
-                    value={form.description}
+                    id="remarks"
+                    name="remarks"
+                    value={form.remarks}
                     onChange={handleInputChange}
                     rows={3}
                     placeholder="Enter maintenance details..."
@@ -457,7 +610,6 @@ export default function MaintenancePage() {
           </section>
         )}
 
-        {/* Dashboard summary */}
         <div className="grid grid-cols-1 gap-5 md:grid-cols-3">
           <div className="rounded-xl bg-white p-6 shadow-sm">
             <p className="text-sm text-gray-500">Total Records</p>
@@ -483,7 +635,6 @@ export default function MaintenancePage() {
           </div>
         </div>
 
-        {/* Maintenance records */}
         <section className="rounded-xl bg-white p-6 shadow-sm">
           <div className="mb-5 flex flex-wrap items-center justify-between gap-4">
             <h2 className="text-xl font-semibold text-gray-900">
@@ -498,6 +649,7 @@ export default function MaintenancePage() {
               <option value="ALL">All statuses</option>
               <option value="SCHEDULED">Scheduled</option>
               <option value="IN_PROGRESS">In Progress</option>
+              <option value="ON_HOLD">On Hold</option>
               <option value="COMPLETED">Completed</option>
               <option value="CANCELLED">Cancelled</option>
             </select>
@@ -534,6 +686,7 @@ export default function MaintenancePage() {
                     <th className="p-3">Scheduled End</th>
                     <th className="p-3">Status</th>
                     <th className="p-3">Cost</th>
+                    <th className="p-3">Actions</th>
                   </tr>
                 </thead>
 
@@ -547,7 +700,9 @@ export default function MaintenancePage() {
                         {record.maintenance_id}
                       </td>
 
-                      <td className="p-3">{record.aircraft_id}</td>
+                      <td className="p-3">
+                        {record.registration_id || record.aircraft_id}
+                      </td>
 
                       <td className="p-3">
                         {record.type_name ||
@@ -574,9 +729,13 @@ export default function MaintenancePage() {
 
                       <td className="p-3">
                         ₹
-                        {Number(record.maintenance_cost || 0).toLocaleString(
+                        {Number(record.cost || 0).toLocaleString(
                           "en-IN"
                         )}
+                      </td>
+
+                      <td className="p-3">
+                        {renderActions(record)}
                       </td>
                     </tr>
                   ))}

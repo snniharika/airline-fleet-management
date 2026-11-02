@@ -3,7 +3,7 @@ USE airline_management;
 -- Q1: Display all aircraft with their model and current airport.
 SELECT
     a.aircraft_id,
-    a.registration_no,
+    a.registration_id,
     am.model_name,
     am.manufacturer,
     ap.airport_code AS current_airport,
@@ -20,7 +20,7 @@ JOIN AIRPORT ap
 SELECT
     f.flight_id,
     f.flight_number,
-    a.registration_no,
+    a.registration_id,
     f.scheduled_departure,
     f.scheduled_arrival,
     f.flight_status
@@ -60,29 +60,29 @@ GROUP BY am.model_id, am.model_name;
 -- Q5: Calculate the number of flights assigned to each aircraft.
 SELECT
     a.aircraft_id,
-    a.registration_no,
+    a.registration_id,
     COUNT(f.flight_id) AS flight_count
 FROM AIRCRAFT a
 LEFT JOIN FLIGHT f
     ON a.aircraft_id = f.aircraft_id
-GROUP BY a.aircraft_id, a.registration_no;
+GROUP BY a.aircraft_id, a.registration_id;
 
 
 -- Q6: Calculate recorded flight hours for each aircraft.
 SELECT
     a.aircraft_id,
-    a.registration_no,
+    a.registration_id,
     COALESCE(SUM(f.flight_hours_recorded), 0) AS recorded_flight_hours
 FROM AIRCRAFT a
 LEFT JOIN FLIGHT f
     ON a.aircraft_id = f.aircraft_id
-GROUP BY a.aircraft_id, a.registration_no;
+GROUP BY a.aircraft_id, a.registration_id;
 
 
 -- Q7: Find aircraft that have no scheduled flights.
 SELECT
     a.aircraft_id,
-    a.registration_no
+    a.registration_id
 FROM AIRCRAFT a
 WHERE NOT EXISTS (
     SELECT 1
@@ -95,7 +95,7 @@ WHERE NOT EXISTS (
 -- or exceeded their next maintenance threshold.
 SELECT
     a.aircraft_id,
-    a.registration_no,
+    a.registration_id,
     a.total_flight_hours,
     a.next_maintenance_due_hours
 FROM AIRCRAFT a

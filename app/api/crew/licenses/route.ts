@@ -1,8 +1,23 @@
 
 import { NextResponse } from "next/server";
 import { pool } from "@/lib/mysql";
+import type { ResultSetHeader, RowDataPacket } from "mysql2";
 
-// GET: Fetch all crew licenses or licenses for one crew member
+interface CrewLicenseRow extends RowDataPacket {
+  license_id: number;
+  crew_id: number;
+  license_type: string;
+  license_number: string;
+  issue_date: string;
+  expiry_date: string;
+  issuing_authority: string;
+  status: string;
+}
+
+interface CrewRow extends RowDataPacket {
+  crew_id: number;
+}
+
 export async function GET(request: Request) {
   try {
     const { searchParams } = new URL(request.url);
@@ -39,7 +54,7 @@ export async function GET(request: Request) {
 
     query += " ORDER BY expiry_date ASC";
 
-    const [rows] = await pool.query(query, params);
+    const [rows] = await pool.query<CrewLicenseRow[]>(query, params);
 
     return NextResponse.json(rows);
   } catch (error) {
@@ -52,7 +67,6 @@ export async function GET(request: Request) {
   }
 }
 
-// POST: Add a new crew license
 export async function POST(request: Request) {
   try {
     const body = await request.json();
@@ -90,7 +104,6 @@ export async function POST(request: Request) {
       );
     }
 
-    // Validate date format
     const dateFormat = /^\d{4}-\d{2}-\d{2}$/;
 
     if (
@@ -105,7 +118,6 @@ export async function POST(request: Request) {
       );
     }
 
-    // Validate date order
     if (expiry_date < issue_date) {
       return NextResponse.json(
         { error: "Expiry date cannot be before issue date" },
@@ -120,30 +132,31 @@ export async function POST(request: Request) {
       "REVOKED",
     ];
 
-    if (!allowedStatuses.includes(status)) {
+    if (
+      typeof status !== "string" ||
+      !allowedStatuses.includes(status)
+    ) {
       return NextResponse.json(
         { error: "Invalid license status" },
         { status: 400 }
       );
     }
 
-    // Check whether the crew member exists
-    const [crewRows] = await pool.execute(
+    const [crewRows] = await pool.execute<CrewRow[]>(
       `SELECT crew_id
        FROM CREW_MEMBER
        WHERE crew_id = ?`,
       [crewId]
     );
 
-    if ((crewRows as any[]).length === 0) {
+    if (crewRows.length === 0) {
       return NextResponse.json(
         { error: "Crew member not found" },
         { status: 404 }
       );
     }
 
-    // Insert the license
-    const [result] = await pool.execute(
+    const [result] = await pool.execute<ResultSetHeader>(
       `INSERT INTO CREW_LICENSE
        (
          crew_id,
@@ -169,7 +182,7 @@ export async function POST(request: Request) {
     return NextResponse.json(
       {
         message: "Crew license created successfully",
-        result,
+        license_id: result.insertId,
       },
       { status: 201 }
     );
