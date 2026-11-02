@@ -4,7 +4,7 @@ CREATE OR REPLACE VIEW flight_schedule_view AS
 SELECT
     f.flight_id,
     f.flight_number,
-    a.registration_no,
+    a.registration_id,
     am.model_name,
     dep.airport_code AS departure_airport,
     arr.airport_code AS arrival_airport,

@@ -7,7 +7,7 @@ export async function GET() {
     const [aircraft] = await pool.query(`
       SELECT
         aircraft_id,
-        registration_no
+        registration_id
       FROM AIRCRAFT
       ORDER BY aircraft_id
     `);

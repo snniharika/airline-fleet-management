@@ -15,7 +15,7 @@ export async function GET() {
     const [rows] = await pool.query(`
       SELECT
         a.aircraft_id,
-        a.registration_no,
+        a.registration_id,
         a.model_id,
         am.model_name,
         am.manufacturer,
@@ -54,7 +54,7 @@ export async function POST(request: NextRequest) {
     const body = await request.json();
 
     const {
-      registration_no,
+      registration_id,
       model_id,
       current_airport_id,
       manufacture_date,
@@ -67,8 +67,8 @@ export async function POST(request: NextRequest) {
     } = body;
 
     if (
-      typeof registration_no !== "string" ||
-      registration_no.trim() === "" ||
+      typeof registration_id !== "string" ||
+      registration_id.trim() === "" ||
       !Number.isInteger(Number(model_id)) ||
       Number(model_id) <= 0 ||
       !Number.isInteger(Number(current_airport_id)) ||
@@ -125,8 +125,8 @@ export async function POST(request: NextRequest) {
     }
 
     const [existing] = await pool.execute(
-      "SELECT aircraft_id FROM aircraft WHERE registration_no = ?",
-      [registration_no.trim()]
+      "SELECT aircraft_id FROM aircraft WHERE registration_id = ?",
+      [registration_id.trim()]
     );
 
     if ((existing as unknown[]).length > 0) {
@@ -138,7 +138,7 @@ export async function POST(request: NextRequest) {
 
     const [result] = await pool.execute(
       `INSERT INTO aircraft (
-        registration_no,
+        registration_id,
         model_id,
         current_airport_id,
         manufacture_date,
@@ -150,7 +150,7 @@ export async function POST(request: NextRequest) {
         next_maintenance_due_hours
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
-        registration_no.trim(),
+        registration_id.trim(),
         Number(model_id),
         Number(current_airport_id),
         manufacture_date,

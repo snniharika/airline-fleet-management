@@ -1,24 +1,29 @@
-
 "use client";
 
 import { useState } from "react";
 
 type Finding = {
+  date: string;
+  component: string;
+  observation: string;
   severity: string;
-  description: string;
 };
 
 type Report = {
   _id?: string;
-  title?: string;
-  inspector?: string;
-  notes?: string;
-  findings?: Finding[];
+  maintenance_id: number;
+  aircraft_id: number;
+  report_type: string;
+  technician_name: string;
+  findings: Finding[];
+  recommendations?: string;
+  report_status: string;
   created_at?: string;
 };
 
 export default function ReportsPage() {
   const [maintenanceId, setMaintenanceId] = useState("1");
+  const [severity, setSeverity] = useState("ALL");
   const [reports, setReports] = useState<Report[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -39,18 +44,20 @@ export default function ReportsPage() {
       setError("");
       setLoaded(false);
 
-      const response = await fetch(`/api/maintenance/${id}/reports`);
+      const query =
+        severity === "ALL" ? "" : `?severity=${severity}`;
+
+      const response = await fetch(
+        `/api/maintenance/${id}/reports${query}`
+      );
+
       const data = await response.json();
 
       if (!response.ok) {
         throw new Error(data.error || "Could not load reports.");
       }
 
-      const reportList = Array.isArray(data)
-        ? data
-        : data.reports ?? [];
-
-      setReports(reportList);
+      setReports(data.reports ?? []);
       setLoaded(true);
     } catch (err) {
       setError(
@@ -68,7 +75,7 @@ export default function ReportsPage() {
       </h1>
 
       <p style={{ color: "#64748b", margin: "8px 0 24px" }}>
-        Review inspection reports and maintenance findings by maintenance ID.
+        Review inspection reports and maintenance findings.
       </p>
 
       <form
@@ -93,6 +100,22 @@ export default function ReportsPage() {
             borderRadius: 8,
           }}
         />
+
+        <select
+          value={severity}
+          onChange={(event) => setSeverity(event.target.value)}
+          style={{
+            padding: 12,
+            border: "1px solid #cbd5e1",
+            borderRadius: 8,
+          }}
+        >
+          <option value="ALL">All Severities</option>
+          <option value="LOW">Low</option>
+          <option value="MEDIUM">Medium</option>
+          <option value="HIGH">High</option>
+          <option value="CRITICAL">Critical</option>
+        </select>
 
         <button
           type="submit"
@@ -132,32 +155,67 @@ export default function ReportsPage() {
                   borderRadius: 12,
                 }}
               >
-                <h3 style={{ fontSize: 18, fontWeight: 700 }}>
-                  {report.title || "Inspection Report"}
+                <h3 style={{ fontSize: 19, fontWeight: 700 }}>
+                  {report.report_type}
                 </h3>
 
-                {report.inspector && (
-                  <p style={{ marginTop: 8 }}>
-                    Inspector: {report.inspector}
+                <p style={{ marginTop: 8 }}>
+                  **Maintenance ID:** {report.maintenance_id}
+                </p>
+
+                <p>**Aircraft ID:** {report.aircraft_id}</p>
+
+                <p>**Technician:** {report.technician_name}</p>
+
+                <p>**Status:** {report.report_status}</p>
+
+                {report.created_at && (
+                  <p>
+                    **Created:**{" "}
+                    {new Date(report.created_at).toLocaleString()}
                   </p>
                 )}
 
-                {report.notes && (
-                  <p style={{ marginTop: 8 }}>{report.notes}</p>
-                )}
+                <div style={{ marginTop: 18 }}>
+                  <h4 style={{ fontWeight: 600 }}>Findings</h4>
 
-                {report.findings && report.findings.length > 0 && (
+                  <div style={{ display: "grid", gap: 10, marginTop: 10 }}>
+                    {report.findings?.map((finding, i) => (
+                      <div
+                        key={i}
+                        style={{
+                          padding: 12,
+                          background: "#f8fafc",
+                          borderRadius: 8,
+                          border: "1px solid #e2e8f0",
+                        }}
+                      >
+                        <p>
+                          <strong>{finding.component}</strong>
+                        </p>
+
+                        <p style={{ marginTop: 4 }}>
+                          {finding.observation}
+                        </p>
+
+                        <p style={{ marginTop: 6, fontSize: 13 }}>
+                          Date: {finding.date}
+                        </p>
+
+                        <p style={{ marginTop: 4, fontSize: 13 }}>
+                          Severity: <strong>{finding.severity}</strong>
+                        </p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                {report.recommendations && (
                   <div style={{ marginTop: 16 }}>
-                    <h4 style={{ fontWeight: 600 }}>Findings</h4>
-
-                    <ul style={{ paddingLeft: 24, marginTop: 8 }}>
-                      {report.findings.map((finding, i) => (
-                        <li key={i} style={{ marginBottom: 8 }}>
-                          <strong>{finding.severity}:</strong>{" "}
-                          {finding.description}
-                        </li>
-                      ))}
-                    </ul>
+                    <h4 style={{ fontWeight: 600 }}>Recommendations</h4>
+                    <p style={{ marginTop: 6 }}>
+                      {report.recommendations}
+                    </p>
                   </div>
                 )}
               </article>

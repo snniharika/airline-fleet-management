@@ -1,10 +1,20 @@
 
 import { NextResponse } from "next/server";
+import type { RowDataPacket, ResultSetHeader } from "mysql2";
 import { pool } from "@/lib/mysql";
+
+function isDuplicateEntryError(error: unknown): boolean {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    "code" in error &&
+    error.code === "ER_DUP_ENTRY"
+  );
+}
 
 export async function GET() {
   try {
-    const [rows] = await pool.query(
+    const [rows] = await pool.query<RowDataPacket[]>(
       `SELECT
         c.crew_id,
         c.employee_code,
@@ -124,7 +134,7 @@ export async function POST(request: Request) {
       );
     }
 
-    const [airportRows]: any = await pool.execute(
+    const [airportRows] = await pool.execute<RowDataPacket[]>(
       "SELECT airport_id FROM AIRPORT WHERE airport_id = ?",
       [airportId]
     );
@@ -136,7 +146,7 @@ export async function POST(request: Request) {
       );
     }
 
-    const [result]: any = await pool.execute(
+    const [result] = await pool.execute<ResultSetHeader>(
       `INSERT INTO CREW_MEMBER
        (
          employee_code,
@@ -172,10 +182,10 @@ export async function POST(request: Request) {
       },
       { status: 201 }
     );
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error("Create crew member error:", error);
 
-    if (error.code === "ER_DUP_ENTRY") {
+    if (isDuplicateEntryError(error)) {
       return NextResponse.json(
         { error: "Employee code or email already exists." },
         { status: 409 }

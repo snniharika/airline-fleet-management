@@ -41,7 +41,7 @@ export async function GET(
     const [rows] = await pool.execute<RowDataPacket[]>(
       `SELECT
         f.*,
-        a.registration_no,
+        a.registration_id,
         am.model_name,
         dep.airport_code AS departure_airport_code,
         dep.airport_name AS departure_airport_name,

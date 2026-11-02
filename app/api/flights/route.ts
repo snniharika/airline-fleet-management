@@ -37,7 +37,7 @@ export async function GET() {
         f.flight_id,
         f.flight_number,
         f.aircraft_id,
-        a.registration_no,
+        a.registration_id,
         am.model_name,
         f.departure_airport_id,
         dep.airport_code AS departure_airport_code,

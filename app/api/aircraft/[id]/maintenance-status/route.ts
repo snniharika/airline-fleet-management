@@ -24,7 +24,7 @@ export async function GET(
     const [rows] = await pool.execute<RowDataPacket[]>(
       `SELECT
          aircraft_id,
-         registration_no,
+         registration_id,
          aircraft_status,
          total_flight_hours,
          next_maintenance_due_hours
@@ -71,7 +71,7 @@ export async function GET(
 
     return NextResponse.json({
       aircraft_id: aircraft.aircraft_id,
-      registration_no: aircraft.registration_no,
+      registration_id: aircraft.registration_id,
       aircraft_status: aircraft.aircraft_status,
       total_flight_hours: totalHours,
       next_maintenance_due_hours: maintenanceDueHours,
