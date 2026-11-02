@@ -27,13 +27,13 @@ export async function GET() {
     const [maintenanceRows] = await pool.query(`
       SELECT
         COUNT(*) AS total_maintenance,
-        SUM(CASE WHEN status = 'SCHEDULED' THEN 1 ELSE 0 END)
+        SUM(CASE WHEN maintenance_status = 'SCHEDULED' THEN 1 ELSE 0 END)
           AS scheduled,
-        SUM(CASE WHEN status = 'IN_PROGRESS' THEN 1 ELSE 0 END)
+        SUM(CASE WHEN maintenance_status = 'IN_PROGRESS' THEN 1 ELSE 0 END)
           AS in_progress,
-        SUM(CASE WHEN status = 'COMPLETED' THEN 1 ELSE 0 END)
+        SUM(CASE WHEN maintenance_status = 'COMPLETED' THEN 1 ELSE 0 END)
           AS completed,
-        SUM(CASE WHEN status = 'ON_HOLD' THEN 1 ELSE 0 END)
+        SUM(CASE WHEN maintenance_status = 'ON_HOLD' THEN 1 ELSE 0 END)
           AS on_hold,
         COALESCE(SUM(maintenance_cost), 0) AS total_maintenance_cost
       FROM MAINTENANCE

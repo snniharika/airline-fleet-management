@@ -14,7 +14,7 @@ export async function GET() {
         m.scheduled_end,
         m.actual_start,
         m.actual_end,
-        m.status,
+        m.maintenance_status,
         m.description,
         m.maintenance_cost
       FROM MAINTENANCE m
@@ -46,6 +46,9 @@ export async function POST(request: Request) {
       description,
     } = body;
 
+    const aircraftId = Number(aircraft_id);
+    const maintenanceTypeId = Number(maintenance_type_id);
+
     if (
       !aircraft_id ||
       !maintenance_type_id ||
@@ -53,36 +56,122 @@ export async function POST(request: Request) {
       !scheduled_end
     ) {
       return NextResponse.json(
-        { error: "Aircraft, maintenance type and schedule dates are required" },
+        {
+          error:
+            "Aircraft, maintenance type and schedule dates are required",
+        },
         { status: 400 }
       );
     }
 
-    if (new Date(scheduled_end) <= new Date(scheduled_start)) {
+    if (
+      !Number.isInteger(aircraftId) ||
+      aircraftId <= 0 ||
+      !Number.isInteger(maintenanceTypeId) ||
+      maintenanceTypeId <= 0
+    ) {
+      return NextResponse.json(
+        { error: "Invalid aircraft or maintenance type ID" },
+        { status: 400 }
+      );
+    }
+
+    const startDate = new Date(scheduled_start);
+    const endDate = new Date(scheduled_end);
+
+    if (
+      Number.isNaN(startDate.getTime()) ||
+      Number.isNaN(endDate.getTime())
+    ) {
+      return NextResponse.json(
+        { error: "Invalid maintenance schedule dates" },
+        { status: 400 }
+      );
+    }
+
+    if (endDate <= startDate) {
       return NextResponse.json(
         { error: "Scheduled end must be later than scheduled start" },
         { status: 400 }
       );
     }
 
-    const [result] = await pool.execute(
+    const [aircraftRows]: any = await pool.execute(
+      "SELECT aircraft_id FROM AIRCRAFT WHERE aircraft_id = ?",
+      [aircraftId]
+    );
+
+    if (aircraftRows.length === 0) {
+      return NextResponse.json(
+        { error: "Aircraft not found" },
+        { status: 404 }
+      );
+    }
+
+    const [typeRows]: any = await pool.execute(
+      `SELECT maintenance_type_id
+       FROM MAINTENANCE_TYPE
+       WHERE maintenance_type_id = ?`,
+      [maintenanceTypeId]
+    );
+
+    // Check whether this aircraft already has overlapping maintenance
+const [overlappingRows]: any = await pool.execute(
+  `SELECT maintenance_id
+   FROM MAINTENANCE
+   WHERE aircraft_id = ?
+     AND maintenance_status NOT IN ('CANCELLED', 'COMPLETED')
+     AND scheduled_start < ?
+     AND scheduled_end > ?
+   LIMIT 1`,
+  [aircraftId, scheduled_end.replace("T", " "), scheduled_start.replace("T", " ")]
+);
+
+if (overlappingRows.length > 0) {
+  return NextResponse.json(
+    {
+      error: "This aircraft already has maintenance scheduled during this time.",
+    },
+    { status: 409 }
+  );
+}
+
+    if (typeRows.length === 0) {
+      return NextResponse.json(
+        { error: "Maintenance type not found" },
+        { status: 404 }
+      );
+    }
+
+    // Convert datetime-local values into MySQL DATETIME format.
+    const mysqlStart = scheduled_start.replace("T", " ");
+    const mysqlEnd = scheduled_end.replace("T", " ");
+
+    const [result]: any = await pool.execute(
       `INSERT INTO MAINTENANCE
-       (aircraft_id, maintenance_type_id, scheduled_start,
-        scheduled_end, description, status, maintenance_cost)
+       (
+         aircraft_id,
+         maintenance_type_id,
+         scheduled_start,
+         scheduled_end,
+         description,
+         maintenance_status,
+         maintenance_cost
+       )
        VALUES (?, ?, ?, ?, ?, 'SCHEDULED', 0)`,
       [
-        aircraft_id,
-        maintenance_type_id,
-        scheduled_start,
-        scheduled_end,
-        description || null,
+        aircraftId,
+        maintenanceTypeId,
+        mysqlStart,
+        mysqlEnd,
+        description?.trim() || null,
       ]
     );
 
     return NextResponse.json(
       {
         message: "Maintenance scheduled successfully",
-        result,
+        maintenance_id: result.insertId,
       },
       { status: 201 }
     );

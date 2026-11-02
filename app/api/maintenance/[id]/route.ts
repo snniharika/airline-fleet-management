@@ -2,138 +2,202 @@
 import { NextResponse } from "next/server";
 import { pool } from "@/lib/mysql";
 
-const allowedStatuses = [
-  "SCHEDULED",
-  "IN_PROGRESS",
-  "COMPLETED",
-  "CANCELLED",
-  "ON_HOLD",
-];
-
-type RouteContext = {
-  params: Promise<{ id: string }>;
-};
-
-export async function PUT(
-  request: Request,
-  { params }: RouteContext
-) {
-  const connection = await pool.getConnection();
-
+// GET: Fetch all maintenance records
+export async function GET() {
   try {
-    const { id } = await params;
-    const maintenanceId = Number(id);
+    const [rows] = await pool.query(`
+      SELECT
+        m.maintenance_id,
+        m.aircraft_id,
+        m.maintenance_type_id,
+        mt.type_name,
+        m.scheduled_start,
+        m.scheduled_end,
+        m.actual_start,
+        m.actual_end,
+        m.maintenance_status,
+        m.description,
+        m.maintenance_cost
+      FROM MAINTENANCE m
+      JOIN MAINTENANCE_TYPE mt
+        ON m.maintenance_type_id = mt.maintenance_type_id
+      ORDER BY m.scheduled_start DESC
+    `);
 
-    if (!Number.isInteger(maintenanceId) || maintenanceId <= 0) {
-      return NextResponse.json(
-        { error: "Invalid maintenance ID" },
-        { status: 400 }
-      );
-    }
+    return NextResponse.json(rows);
+  } catch (error) {
+    console.error("Fetch maintenance error:", error);
 
+    return NextResponse.json(
+      { error: "Failed to fetch maintenance records" },
+      { status: 500 }
+    );
+  }
+}
+
+// POST: Schedule maintenance for an aircraft
+export async function POST(request: Request) {
+  try {
     const body = await request.json();
-    const { status } = body;
 
-    if (!allowedStatuses.includes(status)) {
+    const {
+      aircraft_id,
+      maintenance_type_id,
+      scheduled_start,
+      scheduled_end,
+      description,
+    } = body;
+
+    if (
+      !aircraft_id ||
+      !maintenance_type_id ||
+      !scheduled_start ||
+      !scheduled_end
+    ) {
       return NextResponse.json(
-        { error: "Invalid maintenance status" },
+        {
+          error:
+            "Aircraft, maintenance type and schedule dates are required",
+        },
         { status: 400 }
       );
     }
 
-    await connection.beginTransaction();
+    const aircraftId = Number(aircraft_id);
+    const maintenanceTypeId = Number(maintenance_type_id);
 
-    const [rows] = await connection.execute(
-      `SELECT status
-       FROM MAINTENANCE
-       WHERE maintenance_id = ?
-       FOR UPDATE`,
-      [maintenanceId]
+    if (
+      !Number.isSafeInteger(aircraftId) ||
+      aircraftId <= 0 ||
+      !Number.isSafeInteger(maintenanceTypeId) ||
+      maintenanceTypeId <= 0
+    ) {
+      return NextResponse.json(
+        { error: "Invalid aircraft or maintenance type ID" },
+        { status: 400 }
+      );
+    }
+
+    if (
+      typeof scheduled_start !== "string" ||
+      typeof scheduled_end !== "string"
+    ) {
+      return NextResponse.json(
+        { error: "Schedule dates must be valid date strings" },
+        { status: 400 }
+      );
+    }
+
+    const startDate = new Date(scheduled_start);
+    const endDate = new Date(scheduled_end);
+
+    if (
+      Number.isNaN(startDate.getTime()) ||
+      Number.isNaN(endDate.getTime())
+    ) {
+      return NextResponse.json(
+        { error: "Invalid maintenance schedule dates" },
+        { status: 400 }
+      );
+    }
+
+    if (endDate <= startDate) {
+      return NextResponse.json(
+        { error: "Scheduled end must be later than scheduled start" },
+        { status: 400 }
+      );
+    }
+
+    // Check whether the aircraft exists
+    const [aircraftRows]: any = await pool.execute(
+      `SELECT aircraft_id
+       FROM AIRCRAFT
+       WHERE aircraft_id = ?`,
+      [aircraftId]
     );
 
-    const records = rows as { status: string }[];
-
-    if (records.length === 0) {
-      await connection.rollback();
-
+    if (aircraftRows.length === 0) {
       return NextResponse.json(
-        { error: "Maintenance record not found" },
+        { error: "Aircraft not found" },
         { status: 404 }
       );
     }
 
-    const currentStatus = records[0].status;
+    // Check whether the maintenance type exists
+    const [typeRows]: any = await pool.execute(
+      `SELECT maintenance_type_id
+       FROM MAINTENANCE_TYPE
+       WHERE maintenance_type_id = ?`,
+      [maintenanceTypeId]
+    );
 
-    const transitions: Record<string, string[]> = {
-      SCHEDULED: ["IN_PROGRESS", "CANCELLED", "ON_HOLD"],
-      IN_PROGRESS: ["COMPLETED", "ON_HOLD"],
-      ON_HOLD: ["SCHEDULED", "IN_PROGRESS", "CANCELLED"],
-      COMPLETED: [],
-      CANCELLED: [],
-    };
+    if (typeRows.length === 0) {
+      return NextResponse.json(
+        { error: "Maintenance type not found" },
+        { status: 404 }
+      );
+    }
 
-    if (
-      currentStatus !== status &&
-      !transitions[currentStatus]?.includes(status)
-    ) {
-      await connection.rollback();
+    const mysqlStart = scheduled_start.replace("T", " ");
+    const mysqlEnd = scheduled_end.replace("T", " ");
 
+    // Prevent overlapping maintenance for the same aircraft
+    const [overlapRows]: any = await pool.execute(
+      `SELECT maintenance_id
+       FROM MAINTENANCE
+       WHERE aircraft_id = ?
+         AND maintenance_status NOT IN ('CANCELLED', 'COMPLETED')
+         AND scheduled_start < ?
+         AND scheduled_end > ?
+       LIMIT 1`,
+      [aircraftId, mysqlEnd, mysqlStart]
+    );
+
+    if (overlapRows.length > 0) {
       return NextResponse.json(
         {
-          error: `Cannot change maintenance status from ${currentStatus} to ${status}`,
+          error:
+            "This aircraft already has maintenance scheduled during this time.",
         },
         { status: 409 }
       );
     }
 
-    if (currentStatus === status) {
-      await connection.commit();
-
-      return NextResponse.json({
-        message: "Maintenance already has this status",
-      });
-    }
-
-    if (status === "IN_PROGRESS") {
-      await connection.execute(
-        `UPDATE MAINTENANCE
-         SET status = ?, actual_start = COALESCE(actual_start, NOW())
-         WHERE maintenance_id = ?`,
-        [status, maintenanceId]
-      );
-    } else if (status === "COMPLETED") {
-      await connection.execute(
-        `UPDATE MAINTENANCE
-         SET status = ?, actual_end = NOW()
-         WHERE maintenance_id = ?`,
-        [status, maintenanceId]
-      );
-    } else {
-      await connection.execute(
-        `UPDATE MAINTENANCE
-         SET status = ?
-         WHERE maintenance_id = ?`,
-        [status, maintenanceId]
-      );
-    }
-
-    await connection.commit();
-
-    return NextResponse.json({
-      message: "Maintenance status updated successfully",
-      maintenance_id: maintenanceId,
-      previous_status: currentStatus,
-      status,
-    });
-  } catch (error) {
-    await connection.rollback();
-    console.error("Update maintenance status error:", error);
+    // Create the maintenance schedule
+    const [result]: any = await pool.execute(
+      `INSERT INTO MAINTENANCE
+       (
+         aircraft_id,
+         maintenance_type_id,
+         scheduled_start,
+         scheduled_end,
+         description,
+         maintenance_status,
+         maintenance_cost
+       )
+       VALUES (?, ?, ?, ?, ?, 'SCHEDULED', 0)`,
+      [
+        aircraftId,
+        maintenanceTypeId,
+        mysqlStart,
+        mysqlEnd,
+        description?.trim() || null,
+      ]
+    );
 
     return NextResponse.json(
-      { error: "Failed to update maintenance status" },
+      {
+        message: "Maintenance scheduled successfully",
+        maintenance_id: result.insertId,
+      },
+      { status: 201 }
+    );
+  } catch (error) {
+    console.error("Create maintenance error:", error);
+
+    return NextResponse.json(
+      { error: "Failed to create maintenance record" },
       { status: 500 }
     );
-  } finally {
-    connection.release();
   }
 }

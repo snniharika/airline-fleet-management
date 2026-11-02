@@ -54,7 +54,7 @@ export async function POST(
   request: Request,
   { params }: RouteContext
 ) {
-  const connection = await pool.getConnection();
+  let connection;
 
   try {
     const { id } = await params;
@@ -78,35 +78,49 @@ export async function POST(
       quantity <= 0
     ) {
       return NextResponse.json(
-        { error: "Valid part_id and positive integer quantity_used are required" },
+        {
+          error: "Valid part_id and positive integer quantity_used are required",
+        },
         { status: 400 }
       );
     }
 
+    connection = await pool.getConnection();
     await connection.beginTransaction();
 
     const [maintenanceRows] = await connection.execute(
-      `SELECT status
+      `SELECT maintenance_status
        FROM MAINTENANCE
        WHERE maintenance_id = ?
        FOR UPDATE`,
       [maintenanceId]
     );
 
-    const maintenance = maintenanceRows as { status: string }[];
+    const maintenance = maintenanceRows as {
+      maintenance_status: string;
+    }[];
 
     if (maintenance.length === 0) {
       await connection.rollback();
+
       return NextResponse.json(
         { error: "Maintenance record not found" },
         { status: 404 }
       );
     }
 
-    if (!["SCHEDULED", "IN_PROGRESS"].includes(maintenance[0].status)) {
+    if (
+      !["SCHEDULED", "IN_PROGRESS"].includes(
+        maintenance[0].maintenance_status
+      )
+    ) {
       await connection.rollback();
+
       return NextResponse.json(
-        { error: "Parts can only be recorded for scheduled or in-progress maintenance" },
+        {
+          error:
+            "Parts can only be recorded for scheduled or in-progress maintenance",
+        },
         { status: 409 }
       );
     }
@@ -126,14 +140,18 @@ export async function POST(
 
     if (parts.length === 0) {
       await connection.rollback();
+
       return NextResponse.json(
         { error: "Maintenance part not found" },
         { status: 404 }
       );
     }
 
-    if (Number(parts[0].quantity_in_stock) < quantity) {
+    const availableStock = Number(parts[0].quantity_in_stock);
+
+    if (availableStock < quantity) {
       await connection.rollback();
+
       return NextResponse.json(
         { error: "Insufficient part stock" },
         { status: 409 }
@@ -141,6 +159,7 @@ export async function POST(
     }
 
     const unitCost = Number(parts[0].unit_cost);
+    const totalCost = quantity * unitCost;
 
     await connection.execute(
       `INSERT INTO MAINTENANCE_PART_USAGE
@@ -160,24 +179,27 @@ export async function POST(
       `UPDATE MAINTENANCE
        SET maintenance_cost = maintenance_cost + ?
        WHERE maintenance_id = ?`,
-      [quantity * unitCost, maintenanceId]
+      [totalCost, maintenanceId]
     );
 
     await connection.commit();
 
     return NextResponse.json(
       {
-        message: "Part usage recorded; inventory and maintenance cost updated",
+        message: "Part usage recorded successfully",
         maintenance_id: maintenanceId,
         part_id: partId,
         quantity_used: quantity,
         unit_cost: unitCost,
-        total_cost: quantity * unitCost,
+        total_cost: totalCost,
       },
       { status: 201 }
     );
   } catch (error) {
-    await connection.rollback();
+    if (connection) {
+      await connection.rollback();
+    }
+
     console.error("Record part usage error:", error);
 
     return NextResponse.json(
@@ -185,6 +207,6 @@ export async function POST(
       { status: 500 }
     );
   } finally {
-    connection.release();
+    connection?.release();
   }
 }
