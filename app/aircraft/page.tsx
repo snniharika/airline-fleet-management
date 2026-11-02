@@ -5,7 +5,7 @@ import OperationsShell, { Notice, Panel, inputClass, primaryButton, secondaryBut
 
 type Aircraft = {
   aircraft_id: number;
-  registration_no: string;
+  registration_id: string;
   model_id: number;
   model_name: string;
   manufacturer: string;
@@ -42,7 +42,7 @@ type Airport = {
 };
 
 type FormState = {
-  registration_no: string;
+  registration_id: string;
   model_id: string;
   current_airport_id: string;
   manufacture_date: string;
@@ -55,7 +55,7 @@ type FormState = {
 };
 
 const emptyForm: FormState = {
-  registration_no: "",
+  registration_id: "",
   model_id: "",
   current_airport_id: "",
   manufacture_date: "",
@@ -137,7 +137,7 @@ export default function AircraftPage() {
   useEffect(() => { void loadData(); }, [loadData]);
 
   const filteredAircraft = useMemo(() => aircraft.filter((item) => {
-    const matchesSearch = item.registration_no.toLowerCase().includes(search.trim().toLowerCase());
+    const matchesSearch = item.registration_id.toLowerCase().includes(search.trim().toLowerCase());
     const matchesStatus = statusFilter === "ALL" || item.aircraft_status === statusFilter;
     return matchesSearch && matchesStatus;
   }), [aircraft, search, statusFilter]);
@@ -158,7 +158,7 @@ export default function AircraftPage() {
   function openEdit(item: Aircraft) {
     setEditing(item);
     setForm({
-      registration_no: item.registration_no,
+      registration_id: item.registration_id,
       model_id: String(item.model_id),
       current_airport_id: String(item.current_airport_id),
       manufacture_date: dateOnly(item.manufacture_date),
@@ -181,7 +181,7 @@ export default function AircraftPage() {
     setSuccess("");
 
     const payload = {
-      registration_no: form.registration_no.trim().toUpperCase(),
+      registration_id: form.registration_id.trim().toUpperCase(),
       model_id: Number(form.model_id),
       current_airport_id: Number(form.current_airport_id),
       manufacture_date: form.manufacture_date,
@@ -285,7 +285,7 @@ export default function AircraftPage() {
                   const maintenance = maintenanceLabel(item);
                   return (
                     <tr key={item.aircraft_id} className="border-b border-slate-100 last:border-0 hover:bg-slate-50/70">
-                      <td className="px-3 py-4 font-semibold">{item.registration_no}<p className="mt-1 text-xs font-normal text-slate-500">ID #{item.aircraft_id}</p></td>
+                      <td className="px-3 py-4 font-semibold">{item.registration_id}<p className="mt-1 text-xs font-normal text-slate-500">ID #{item.aircraft_id}</p></td>
                       <td className="px-3 py-4"><span className="font-medium">{item.model_name}</span><p className="mt-1 text-xs text-slate-500">{item.manufacturer}</p></td>
                       <td className="px-3 py-4">{item.current_airport_code}<p className="mt-1 text-xs text-slate-500">{item.current_airport_name}</p></td>
                       <td className="px-3 py-4 font-medium tabular-nums">{Number(item.total_flight_hours).toFixed(2)} hrs</td>
@@ -310,7 +310,7 @@ export default function AircraftPage() {
             </div>
             {error && <div className="mb-4"><Notice>{error}</Notice></div>}
             <form onSubmit={submitAircraft} className="grid gap-4 sm:grid-cols-2">
-              <label className="text-sm font-medium text-slate-700">Registration number<input required maxLength={20} className={`${inputClass} mt-1.5`} value={form.registration_no} onChange={(e) => setForm({ ...form, registration_no: e.target.value.toUpperCase() })} placeholder="VT-ABC" /></label>
+              <label className="text-sm font-medium text-slate-700">Registration number<input required maxLength={20} className={`${inputClass} mt-1.5`} value={form.registration_id} onChange={(e) => setForm({ ...form, registration_id: e.target.value.toUpperCase() })} placeholder="VT-ABC" /></label>
               <label className="text-sm font-medium text-slate-700">Aircraft model<select required className={`${inputClass} mt-1.5`} value={form.model_id} onChange={(e) => setForm({ ...form, model_id: e.target.value })}><option value="">Select model</option>{models.map((m) => <option key={m.model_id} value={m.model_id}>{m.manufacturer} · {m.model_name}</option>)}</select></label>
               <label className="text-sm font-medium text-slate-700">Current airport<select required className={`${inputClass} mt-1.5`} value={form.current_airport_id} onChange={(e) => setForm({ ...form, current_airport_id: e.target.value })}><option value="">Select airport</option>{airports.map((a) => <option key={a.airport_id} value={a.airport_id}>{a.airport_code} · {a.city}</option>)}</select></label>
               <label className="text-sm font-medium text-slate-700">Aircraft status<select className={`${inputClass} mt-1.5`} value={form.aircraft_status} onChange={(e) => setForm({ ...form, aircraft_status: e.target.value })}><option>ACTIVE</option><option>MAINTENANCE</option><option>GROUNDED</option><option>RETIRED</option></select></label>
@@ -329,7 +329,7 @@ export default function AircraftPage() {
       {selected && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 p-4">
           <div className="w-full max-w-xl rounded-2xl bg-white p-6 shadow-xl">
-            <div className="flex items-start justify-between"><div><p className="text-xs font-semibold uppercase tracking-wider text-sky-700">Aircraft details</p><h3 className="mt-1 text-xl font-bold">{selected.registration_no}</h3><p className="mt-1 text-sm text-slate-500">{selected.manufacturer} {selected.model_name}</p></div><button className="text-2xl text-slate-400" onClick={() => setSelected(null)}>×</button></div>
+            <div className="flex items-start justify-between"><div><p className="text-xs font-semibold uppercase tracking-wider text-sky-700">Aircraft details</p><h3 className="mt-1 text-xl font-bold">{selected.registration_id}</h3><p className="mt-1 text-sm text-slate-500">{selected.manufacturer} {selected.model_name}</p></div><button className="text-2xl text-slate-400" onClick={() => setSelected(null)}>×</button></div>
             <div className="mt-5 grid gap-3 sm:grid-cols-2">
               {[
                 ["Aircraft ID", selected.aircraft_id],

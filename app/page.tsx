@@ -1,11 +1,13 @@
+
 "use client";
 
+import AuthControls from "@/components/AuthControls";
 import { useEffect, useState } from "react";
 import Link from "next/link";
 
 type Aircraft = {
   aircraft_id: number;
-  registration_no: string;
+  registration_id: string;
   aircraft_status: string;
   total_flight_hours: number | string;
   next_maintenance_due_hours?: number | string | null;
@@ -16,7 +18,7 @@ type Aircraft = {
 type Flight = {
   flight_id: number;
   flight_number: string;
-  registration_no?: string;
+  registration_id?: string;
   aircraft_id: number;
   departure_airport?: string;
   arrival_airport?: string;
@@ -248,14 +250,18 @@ export default function Dashboard() {
             </p>
           </div>
 
-          <div className="rounded-xl border border-slate-200 bg-white px-4 py-3 shadow-sm">
-            <p className="text-xs text-slate-500">
-              System status
-            </p>
+          <div className="flex flex-wrap items-center gap-3">
+            <div className="rounded-xl border border-slate-200 bg-white px-4 py-3 shadow-sm">
+              <p className="text-xs text-slate-500">
+                System status
+              </p>
 
-            <p className="mt-1 font-semibold text-emerald-700">
-              ● Connected to dashboard APIs
-            </p>
+              <p className="mt-1 font-semibold text-emerald-700">
+                Connected to dashboard APIs
+              </p>
+            </div>
+
+            <AuthControls />
           </div>
         </header>
 
