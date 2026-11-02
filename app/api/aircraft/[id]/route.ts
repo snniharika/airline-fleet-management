@@ -1,3 +1,5 @@
+
+import { requireApiRole } from "@/lib/api-auth";
 import { NextRequest, NextResponse } from "next/server";
 import pool from "@/lib/mysql";
 import type { ResultSetHeader, RowDataPacket } from "mysql2";
@@ -35,6 +37,12 @@ export async function GET(
   _request: NextRequest,
   { params }: RouteContext
 ) {
+  const auth = await requireApiRole();
+
+  if (auth.error) {
+    return auth.error;
+  }
+
   try {
     const { id } = await params;
     const aircraftId = Number(id);
@@ -97,6 +105,12 @@ export async function PUT(
   request: NextRequest,
   { params }: RouteContext
 ) {
+  const auth = await requireApiRole(["ADMIN"]);
+
+  if (auth.error) {
+    return auth.error;
+  }
+
   try {
     const { id } = await params;
     const aircraftId = Number(id);

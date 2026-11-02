@@ -1,6 +1,10 @@
+
+import { requireApiRole } from "@/lib/api-auth";
 import { NextResponse } from "next/server";
 import pool from "@/lib/mysql";
 import type { RowDataPacket } from "mysql2/promise";
+
+export const runtime = "nodejs";
 
 type RouteContext = {
   params: Promise<{ id: string }>;
@@ -10,6 +14,13 @@ export async function GET(
   _request: Request,
   { params }: RouteContext
 ) {
+  // Both ADMIN and STAFF can view aircraft maintenance status.
+  const auth = await requireApiRole();
+
+  if (auth.error) {
+    return auth.error;
+  }
+
   try {
     const { id } = await params;
     const aircraftId = Number(id);

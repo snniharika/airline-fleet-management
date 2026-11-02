@@ -1,3 +1,4 @@
+import { requireApiRole } from "@/lib/api-auth";
 import { NextRequest, NextResponse } from "next/server";
 import pool from "@/lib/mysql";
 import type { PoolConnection, RowDataPacket } from "mysql2/promise";
@@ -27,6 +28,12 @@ export async function GET(
   _request: NextRequest,
   { params }: RouteContext
 ) {
+
+  const auth = await requireApiRole();
+
+  if (auth.error) {
+    return auth.error;
+  }
   try {
     const { id } = await params;
     const flightId = Number(id);
@@ -78,6 +85,12 @@ export async function PUT(
   request: NextRequest,
   { params }: RouteContext
 ) {
+
+  const auth = await requireApiRole();
+
+  if (auth.error) {
+    return auth.error;
+  }
   let connection: PoolConnection | undefined;
   let transactionStarted = false;
 

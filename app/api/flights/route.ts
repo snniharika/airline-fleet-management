@@ -1,6 +1,10 @@
+
+import { requireApiRole } from "@/lib/api-auth";
 import { NextRequest, NextResponse } from "next/server";
 import pool from "@/lib/mysql";
 import type { ResultSetHeader, RowDataPacket } from "mysql2";
+
+export const runtime = "nodejs";
 
 const allowedStatuses = [
   "SCHEDULED",
@@ -11,17 +15,6 @@ const allowedStatuses = [
   "CANCELLED",
 ];
 
-type FlightRow = RowDataPacket & {
-  flight_id: number;
-  flight_number: string;
-  aircraft_id: number;
-  departure_airport_id: number;
-  arrival_airport_id: number;
-  scheduled_departure: string;
-  scheduled_arrival: string;
-  flight_status: string;
-};
-
 function isValidDate(value: unknown): value is string {
   return (
     typeof value === "string" &&
@@ -31,8 +24,14 @@ function isValidDate(value: unknown): value is string {
 }
 
 export async function GET() {
+  const auth = await requireApiRole();
+
+  if (auth.error) {
+    return auth.error;
+  }
+
   try {
-    const [rows] = await pool.execute(
+    const [rows] = await pool.execute<RowDataPacket[]>(
       `SELECT
         f.flight_id,
         f.flight_number,
@@ -72,10 +71,27 @@ export async function GET() {
 }
 
 export async function POST(request: NextRequest) {
+  const auth = await requireApiRole();
+
+  if (auth.error) {
+    return auth.error;
+  }
+
   let connection;
 
   try {
     const body = await request.json();
+
+    if (
+      typeof body !== "object" ||
+      body === null ||
+      Array.isArray(body)
+    ) {
+      return NextResponse.json(
+        { error: "Request body must be a JSON object." },
+        { status: 400 }
+      );
+    }
 
     const flightNumber =
       typeof body.flight_number === "string"

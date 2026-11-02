@@ -1,9 +1,13 @@
+
+import { requireApiRole } from "@/lib/api-auth";
 import { NextRequest, NextResponse } from "next/server";
 import pool from "@/lib/mysql";
 import type {
   PoolConnection,
   RowDataPacket,
 } from "mysql2/promise";
+
+export const runtime = "nodejs";
 
 type RouteContext = {
   params: Promise<{ id: string }>;
@@ -25,6 +29,13 @@ export async function POST(
   request: NextRequest,
   { params }: RouteContext
 ) {
+  // Both ADMIN and STAFF can complete flights.
+  const auth = await requireApiRole();
+
+  if (auth.error) {
+    return auth.error;
+  }
+
   let connection: PoolConnection | undefined;
   let transactionStarted = false;
 
@@ -39,10 +50,21 @@ export async function POST(
       );
     }
 
-    const body = await request.json();
+    const body: unknown = await request.json();
 
-    const actualDeparture = body.actual_departure;
-    const actualArrival = body.actual_arrival;
+    if (
+      typeof body !== "object" ||
+      body === null ||
+      Array.isArray(body)
+    ) {
+      return NextResponse.json(
+        { error: "Request body must be a JSON object." },
+        { status: 400 }
+      );
+    }
+
+    const actualDeparture = (body as Record<string, unknown>).actual_departure;
+    const actualArrival = (body as Record<string, unknown>).actual_arrival;
 
     if (
       !isValidDate(actualDeparture) ||
@@ -229,6 +251,7 @@ export async function POST(
       );
     }
 
+    // Commit all related updates atomically.
     await connection.commit();
     transactionStarted = false;
 
